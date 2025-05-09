@@ -6,7 +6,7 @@ mod git_repository_handler;
 mod session_manager;
 
 use crate::config::Config; // Add this line
-use tracing::{debug, Level}; // Add debug to tracing imports
+use tracing::{Level, debug}; // Add debug to tracing imports
 
 // Add this function before main
 fn setup_tracing(debug_mode: bool) {

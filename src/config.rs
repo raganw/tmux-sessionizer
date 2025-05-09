@@ -8,7 +8,6 @@ use std::path::PathBuf;
 struct CliArgs {
     #[arg(short, long, action = clap::ArgAction::SetTrue, help = "Enable debug mode")]
     debug: bool,
-
     // Placeholder for potential future arguments for paths or exclusions
     // For example:
     // #[arg(long, value_delimiter = ',', help = "Additional search paths, comma-separated")]
