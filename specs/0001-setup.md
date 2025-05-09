@@ -24,53 +24,45 @@
 
 ### Beginning context
 
-- (No files exist yet, this is the initial setup)
+- `ai-docs/CONVENTIONS.md` (readonly)
+- `ai-docs/library-reference.md` (readonly)
+- `specs/0001-setup.md` (readonly)
+- `Cargo.toml` (readonly)
+- `README.md`
+- `src/main.rs`
+- `src/config.rs`
 
 ### Ending context
 
-- `Cargo.toml`
 - `src/main.rs`
 - `src/config.rs`
-- `README.md`
 
 ## Low-Level Tasks
 
 > Ordered from start to finish
 
-1. Initialize a new Rust project with Cargo
+1. Create the main module structure
 
 ```aider
-CREATE a new Rust project named "tmux-sessionizer" with appropriate dependencies.
-Use Cargo.toml to set up the project with the following dependencies:
-- clap (for command-line parsing)
-- walkdir (for directory traversal)
-- regex (for pattern matching)
-- tracing (for structured logging)
-- git2 (for Git repository operations)
-Please include appropriate version numbers for each dependency.
+UPDATE src/main.rs:
+  Add basic program structure that includes module declarations.
+  Set up the main function that will eventually call into our modules.
+  Add tracing initialization for debug logging.
 ```
 
-2. Create the main module structure
+2. Implement basic config structure
 
 ```aider
-CREATE src/main.rs with a basic program structure that includes module declarations.
-Set up the main function that will eventually call into our modules.
-Add tracing initialization for debug logging.
+UPDATE src/config.rs:
+  Implement a Config struct that holds:
+  - search_paths: Vec<PathBuf>
+  - additional_paths: Vec<PathBuf>
+  - exclude_patterns: Vec<Regex>
+  - debug_mode: bool
+  Add a default implementation that matches the bash script's defaults.
 ```
 
-3. Implement basic config structure
-
-```aider
-CREATE src/config.rs module.
-Implement a Config struct that holds:
-- search_paths: Vec<PathBuf>
-- additional_paths: Vec<PathBuf>
-- exclude_patterns: Vec<Regex>
-- debug_mode: bool
-Add a default implementation that matches the bash script's defaults.
-```
-
-4. Implement command-line argument parsing
+3. Implement command-line argument parsing
 
 ```aider
 UPDATE src/config.rs to add command-line argument parsing.
@@ -80,7 +72,7 @@ Use clap to parse:
 Ensure the arguments can override the default configuration.
 ```
 
-5. Connect config to main
+4. Connect config to main
 
 ```aider
 UPDATE src/main.rs to use the Config module.
@@ -88,14 +80,15 @@ Parse command-line arguments and create a Config instance.
 Add debug logging to show the loaded configuration when debug mode is enabled.
 ```
 
-6. Create initial README
+5. Update initial README
 
 ```aider
-CREATE README.md with basic project information.
-Include:
-- Project name and purpose
-- Brief description of what it does
-- Basic usage instructions
-- Dependencies required (tmux, git)
-- Development status (in progress)
+UPDATE README.md:
+  Add basic project information.
+  Include:
+  - Project name and purpose
+  - Brief description of what it does
+  - Basic usage instructions
+  - Dependencies required (tmux, git)
+  - Development status (in progress)
 ```

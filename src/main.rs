@@ -6,11 +6,14 @@ mod git_repository_handler;
 mod session_manager;
 
 use tracing::Level;
-use tracing_subscriber;
 
 // Add this function before main
 fn setup_tracing(debug_mode: bool) {
-    let level = if debug_mode { Level::DEBUG } else { Level::INFO };
+    let level = if debug_mode {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
     tracing_subscriber::fmt().with_max_level(level).init();
 }
 
