@@ -3,6 +3,7 @@ use crate::config::Config; // Add this to use the Config struct
 use std::collections::HashSet; // Add this for HashSet
 use std::fs;
 use std::path::{Path, PathBuf};
+use tracing::{debug, info, warn, span, Level}; // Add tracing imports
 use walkdir::WalkDir; // Add this for directory traversal
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,32 +58,37 @@ impl<'a> DirectoryScanner<'a> {
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
     ) {
-        // Ensure the path is a directory. For symlinks, this checks the target.
+        let candidate_span = span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
+        let _enter = candidate_span.enter();
+
         if !original_path.is_dir() {
-            // Optionally log: tracing::debug!("Skipping non-directory: {:?}", original_path);
+            debug!(path = %original_path.display(), "Skipping non-directory");
             return;
         }
 
         let resolved_path = match fs::canonicalize(&original_path) {
             Ok(p) => p,
-            Err(_e) => {
-                // Optionally log: tracing::warn!("Could not canonicalize path: {:?}, error: {}", original_path, e);
+            Err(e) => {
+                warn!(path = %original_path.display(), error = %e, "Could not canonicalize path, skipping");
                 return; // Skip if path cannot be canonicalized
             }
         };
+        debug!(original = %original_path.display(), resolved = %resolved_path.display(), "Path resolved");
 
         // Prevent duplicates based on canonical path
         if processed_resolved_paths.contains(&resolved_path) {
-            // Optionally log: tracing::debug!("Skipping duplicate resolved path: {:?}", resolved_path);
+            debug!(path = %resolved_path.display(), "Skipping duplicate resolved path");
             return;
         }
 
         // Apply exclusion patterns
         for pattern in &self.config.exclude_patterns {
-            if pattern.is_match(original_path.to_string_lossy().as_ref())
-                || pattern.is_match(resolved_path.to_string_lossy().as_ref())
-            {
-                // Optionally log: tracing::debug!("Skipping excluded path: {:?} (resolved: {:?}) by pattern: {}", original_path, resolved_path, pattern);
+            if pattern.is_match(original_path.to_string_lossy().as_ref()) {
+                debug!(path = %original_path.display(), pattern = %pattern, "Skipping excluded original path");
+                return;
+            }
+            if pattern.is_match(resolved_path.to_string_lossy().as_ref()) {
+                debug!(path = %resolved_path.display(), pattern = %pattern, "Skipping excluded resolved path");
                 return;
             }
         }
@@ -97,10 +103,11 @@ impl<'a> DirectoryScanner<'a> {
 
         // Skip hidden directories by default
         if display_name.starts_with('.') && display_name.len() > 1 {
-            // Optionally log: tracing::debug!("Skipping hidden directory: {:?}", display_name);
+            debug!(name = %display_name, path = %resolved_path.display(), "Skipping hidden directory");
             return;
         }
 
+        debug!(name = %display_name, path = %resolved_path.display(), "Adding directory entry");
         let dir_entry = DirectoryEntry {
             path: original_path, // Store the path as it was found/provided
             resolved_path: resolved_path.clone(),
@@ -113,49 +120,72 @@ impl<'a> DirectoryScanner<'a> {
     }
 
     pub fn scan(&self) -> Vec<DirectoryEntry> {
+        let scan_span = span!(Level::INFO, "directory_scan");
+        let _enter = scan_span.enter();
+
+        info!("Starting directory scan");
         let mut entries = Vec::new();
         let mut processed_resolved_paths = HashSet::new();
 
+        debug!(search_paths = ?self.config.search_paths, "Processing search paths");
         // 1. Process search_paths (scan directories within them, depth 1)
         for search_path_config_entry in &self.config.search_paths {
+            let path_span = span!(Level::DEBUG, "process_search_root", config_path = %search_path_config_entry.display());
+            let _path_enter = path_span.enter();
+
             let search_path_base = match expand_tilde(search_path_config_entry) {
                 Some(p) => p,
                 None => {
-                    // Optionally log: tracing::warn!("Could not expand tilde for search path: {:?}", search_path_config_entry);
+                    warn!(path = %search_path_config_entry.display(), "Could not expand tilde for search path, skipping");
                     continue;
                 }
             };
+            debug!(expanded_path = %search_path_base.display(), "Expanded search path");
 
             if !search_path_base.is_dir() {
-                // Optionally log: tracing::warn!("Search path is not a directory or is inaccessible: {:?}", search_path_base);
+                warn!(path = %search_path_base.display(), "Search path is not a directory or is inaccessible, skipping");
                 continue;
             }
 
+            debug!(path = %search_path_base.display(), "Iterating direct children");
             for entry_result in WalkDir::new(&search_path_base)
                 .min_depth(1)
                 .max_depth(1)
                 .follow_links(true)
                 .into_iter()
-                .filter_map(Result::ok)
+                .filter_map(|e| {
+                    if e.is_err() {
+                        warn!(error = ?e.as_ref().err(), "Error iterating directory child");
+                    }
+                    e.ok()
+                })
             {
                 let original_path = entry_result.path().to_path_buf();
+                debug!(found_path = %original_path.display(), "Found potential directory in search path");
                 self.process_path_candidate(original_path, &mut entries, &mut processed_resolved_paths);
             }
         }
 
+        debug!(additional_paths = ?self.config.additional_paths, "Processing additional paths");
         // 2. Process additional_paths (each path is a direct candidate)
         for additional_path_config_entry in &self.config.additional_paths {
+             let path_span = span!(Level::DEBUG, "process_additional_path", config_path = %additional_path_config_entry.display());
+            let _path_enter = path_span.enter();
+
             let original_path = match expand_tilde(additional_path_config_entry) {
                 Some(p) => p,
                 None => {
-                    // Optionally log: tracing::warn!("Could not expand tilde for additional path: {:?}", additional_path_config_entry);
+                    warn!(path = %additional_path_config_entry.display(), "Could not expand tilde for additional path, skipping");
                     continue;
                 }
             };
+            debug!(expanded_path = %original_path.display(), "Expanded additional path");
             // For additional_paths, the path itself is the candidate
             self.process_path_candidate(original_path, &mut entries, &mut processed_resolved_paths);
         }
 
+        info!(count = entries.len(), "Directory scan complete");
+        debug!(final_entries = ?entries, "Final list of directory entries");
         entries
     }
 }
