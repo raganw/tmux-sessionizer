@@ -140,28 +140,26 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf, Error> {
     };
 
     let main_path_candidate = if repo.is_worktree() {
-        // A worktree's .git file points to <main_repo_path>/.git/worktrees/<worktree_name>.
-        // repo.commondir() for a worktree gives <main_repo_path>/.git/worktrees/<worktree_name>.
-        // The parent of this is <main_repo_path>/.git/worktrees.
-        // The parent of *that* is <main_repo_path>/.git.
-        // The parent of *that* is <main_repo_path>.
-
-        let common_dir = repo.commondir(); // e.g., /path/to/main/.git/worktrees/wt_name
-        common_dir.parent() // e.g., /path/to/main/.git/worktrees
-            .and_then(|p| p.parent()) // e.g., /path/to/main/.git
-            .and_then(|p| p.parent()) // e.g., /path/to/main
-            .ok_or_else(|| Error::from_str("Could not determine main repository path from worktree commondir structure"))?
+        // If it's a worktree, repo.commondir() is the .git dir of the main repository.
+        // So, its parent is the working directory of the main repository.
+        let common_dir = repo.commondir();
+        debug!(path_in_repo = %path_in_repo.display(), worktree_commondir = %common_dir.display(), "Determining main path for worktree");
+        common_dir.parent()
+            .ok_or_else(|| Error::from_str("Worktree's common directory has no parent"))?
             .to_path_buf()
-
     } else if repo.is_bare() {
+        debug!(path_in_repo = %path_in_repo.display(), "Repository is bare, main path is repo.path()");
         repo.path().to_path_buf() // For a bare repo, its own path is the main repository path.
     } else {
         // For a non-bare, non-worktree repository, its workdir is the main repository path.
+        debug!(path_in_repo = %path_in_repo.display(), "Repository is non-bare, non-worktree, main path is repo.workdir()");
         repo.workdir().ok_or_else(|| Error::from_str("Non-bare, non-worktree repository has no workdir"))?.to_path_buf()
     };
     
     debug!(candidate_main_path = %main_path_candidate.display(), "Candidate main repository path determined");
 
+    // Canonicalize the determined path.
+    // Note: fs::canonicalize might fail if the path doesn't exist, but at this stage, it should.
     match std::fs::canonicalize(&main_path_candidate) {
         Ok(p) => {
             debug!(path = %p.display(), "Canonicalized main repository path");
