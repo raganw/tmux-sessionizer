@@ -97,9 +97,9 @@ impl FuzzyFinder {
 
         // Configure Skim options
         let options = SkimOptionsBuilder::default()
-            .height("50%")
+            .height("50%".to_string())
             .multi(false) // Single selection mode
-            .prompt("Select project: ")
+            .prompt("Select project: ".to_string())
             // .header(Some("Choose a directory:")) // Alternative to prompt
             // .preview(Some("")) // Enable preview window, command can be set
             // .delimiter(Some("\t")) // If Skim needs to parse fields internally
