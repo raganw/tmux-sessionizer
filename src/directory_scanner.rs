@@ -9,9 +9,9 @@ use walkdir::WalkDir; // Add this for directory traversal
 #[derive(Debug, Clone, PartialEq)]
 pub enum DirectoryType {
     Plain,
-    // GitRepository, // To be added later
-    // GitWorktree { main_worktree: PathBuf }, // To be added later
-    // GitWorktreeContainer, // To be added later
+    GitRepository,
+    GitWorktree { main_worktree_path: PathBuf }, // Path to the main .git dir or main worktree's root
+    GitWorktreeContainer, // A directory that primarily contains worktrees of a single main repo
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,7 +20,7 @@ pub struct DirectoryEntry {
     pub resolved_path: PathBuf,
     pub display_name: String,
     pub entry_type: DirectoryType,
-    // pub parent_path: Option<PathBuf>, // For worktrees, to be added later
+    pub parent_path: Option<PathBuf>, // For worktrees, to reference their main repo's path
 }
 
 // Helper function for tilde expansion
