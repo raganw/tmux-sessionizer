@@ -7,7 +7,7 @@ mod session_manager;
 
 use crate::config::Config; // Add this line
 use crate::directory_scanner::DirectoryScanner; // Add this line to import DirectoryScanner
-use tracing::{debug, Level}; // debug is already here, Level is used by setup_tracing
+use tracing::Level; // debug is already here, Level is used by setup_tracing
 
 // Add this function before main
 fn setup_tracing(debug_mode: bool) {

@@ -1,5 +1,5 @@
 
-use git2::{Error, ErrorClass, ErrorCode, Repository, WorktreeAddOptions}; // Added WorktreeAddOptions for tests
+use git2::{Error, Repository, WorktreeAddOptions}; // Added WorktreeAddOptions for tests
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, span, warn, Level}; // Added span and Level
 
@@ -297,7 +297,8 @@ mod tests {
 
         // Add worktree using git2
         let mut opts = WorktreeAddOptions::new();
-        opts.reference(Some(&repo.find_reference("HEAD").unwrap())); // Create from HEAD
+        let head_ref = repo.find_reference("HEAD").unwrap(); // Create a longer-lived binding
+        opts.reference(Some(&head_ref)); // Use the binding
         
         // Need to ensure the path for the worktree is outside the main repo's temp dir
         // or use a relative path that makes sense. tempdir() creates unique paths.
@@ -347,7 +348,8 @@ mod tests {
         let wt_name = "linked-feature";
         
         let mut opts = WorktreeAddOptions::new();
-        opts.reference(Some(&repo.find_reference("HEAD").unwrap()));
+        let head_ref = repo.find_reference("HEAD").unwrap(); // Create a longer-lived binding
+        opts.reference(Some(&head_ref)); // Use the binding
         repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
 
         let main_path_from_worktree = get_main_repository_path(wt_path).unwrap();

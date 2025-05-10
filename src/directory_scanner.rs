@@ -1,6 +1,6 @@
 use crate::config::Config; // Add this to use the Config struct
 use crate::git_repository_handler::{
-    self, is_git_repository, list_linked_worktrees, Worktree,
+    self, is_git_repository, list_linked_worktrees,
 };
 use git2::Repository; // For repo.is_worktree()
 use std::collections::HashSet; // Add this for HashSet
