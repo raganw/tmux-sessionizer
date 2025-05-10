@@ -504,7 +504,7 @@ mod tests {
         ];
         let result = finder.direct_select(&entries, "unique_name_1");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().unwrap().resolved_path, PathBuf::from("/resolved/proj1"));
+        assert_eq!(result.unwrap().unwrap().path, PathBuf::from("/resolved/proj1"));
     }
 
     #[test]
