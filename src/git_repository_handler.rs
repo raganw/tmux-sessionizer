@@ -142,11 +142,26 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf, Error> {
     let main_path_candidate = if repo.is_worktree() {
         // If it's a worktree, repo.commondir() is the .git dir of the main repository.
         // So, its parent is the working directory of the main repository.
+        // However, if the main repository is bare, repo.commondir() IS the main repository path.
         let common_dir = repo.commondir();
         debug!(path_in_repo = %path_in_repo.display(), worktree_commondir = %common_dir.display(), "Determining main path for worktree");
-        common_dir.parent()
-            .ok_or_else(|| Error::from_str("Worktree's common directory has no parent"))?
-            .to_path_buf()
+        // Check if the repository at common_dir is bare
+        match Repository::open(&common_dir) {
+            Ok(main_repo_at_commondir) => {
+                if main_repo_at_commondir.is_bare() {
+                    common_dir.to_path_buf() // If main repo is bare, its path is common_dir
+                } else {
+                    // If main repo is not bare, its workdir is common_dir.parent()
+                    common_dir.parent()
+                        .ok_or_else(|| Error::from_str("Worktree's common directory (for non-bare main repo) has no parent"))?
+                        .to_path_buf()
+                }
+            }
+            Err(e) => {
+                error!(commondir_path = %common_dir.display(), error = %e, "Failed to open repository at worktree's common_dir to determine if bare");
+                return Err(e);
+            }
+        }
     } else if repo.is_bare() {
         debug!(path_in_repo = %path_in_repo.display(), "Repository is bare, main path is repo.path()");
         repo.path().to_path_buf() // For a bare repo, its own path is the main repository path.

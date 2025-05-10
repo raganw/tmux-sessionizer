@@ -716,11 +716,17 @@ mod tests {
         // Expected: main_bare_repo, wt1, wt2 (as children of main_bare_repo if list_linked_worktrees is effective), plain_project
         // NOT Expected: worktree_holder
         
-        assert!(entries.iter().any(|e| e.resolved_path == main_repo_dir));
-        assert!(entries.iter().any(|e| e.resolved_path == wt1_path)); // Found via list_linked_worktrees
-        assert!(entries.iter().any(|e| e.resolved_path == wt2_path)); // Found via list_linked_worktrees
-        assert!(entries.iter().any(|e| e.resolved_path == plain_dir_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == container_dir_path), "Worktree container should be excluded");
+        let canonical_main_repo_dir = fs::canonicalize(&main_repo_dir).unwrap();
+        let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap();
+        let canonical_wt2_path = fs::canonicalize(&wt2_path).unwrap();
+        let canonical_plain_dir_path = fs::canonicalize(&plain_dir_path).unwrap();
+        let canonical_container_dir_path = fs::canonicalize(&container_dir_path).unwrap();
+
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_main_repo_dir));
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt1_path)); // Found via list_linked_worktrees
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt2_path)); // Found via list_linked_worktrees
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_dir_path));
+        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_dir_path), "Worktree container should be excluded. Entries: {:?}", entries);
         
         // Check total count. main_repo + 2 worktrees + plain_dir = 4
         // If main_repo_dir itself is not directly in search_paths but base_dir is,
@@ -763,10 +769,15 @@ mod tests {
 
         assert_eq!(entries.len(), 4, "Should find plain, git repo, bare repo, and its worktree. Entries: {:?}", entries);
 
-        assert!(entries.iter().any(|e| e.resolved_path == plain_project_path && e.entry_type == DirectoryType::Plain));
-        assert!(entries.iter().any(|e| e.resolved_path == git_project_path && e.entry_type == DirectoryType::GitRepository));
-        assert!(entries.iter().any(|e| e.resolved_path == main_bare_repo_path && e.entry_type == DirectoryType::GitRepository));
-        assert!(entries.iter().any(|e| e.resolved_path == worktree1_path && matches!(e.entry_type, DirectoryType::GitWorktree { .. })));
+        let canonical_plain_project_path = fs::canonicalize(&plain_project_path).unwrap();
+        let canonical_git_project_path = fs::canonicalize(&git_project_path).unwrap();
+        let canonical_main_bare_repo_path = fs::canonicalize(&main_bare_repo_path).unwrap();
+        let canonical_worktree1_path = fs::canonicalize(&worktree1_path).unwrap();
+
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_project_path && e.entry_type == DirectoryType::Plain));
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_git_project_path && e.entry_type == DirectoryType::GitRepository));
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_main_bare_repo_path && e.entry_type == DirectoryType::GitRepository));
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_worktree1_path && matches!(e.entry_type, DirectoryType::GitWorktree { .. })));
     }
 
     #[test]
@@ -800,8 +811,11 @@ mod tests {
         let entries = scanner.scan();
         
         assert_eq!(entries.len(), 2, "Entries: {:?}", entries);
-        assert!(entries.iter().any(|e| e.resolved_path == project_in_dev_path));
-        assert!(entries.iter().any(|e| e.resolved_path == additional_project_path));
+
+        let canonical_project_in_dev_path = fs::canonicalize(&project_in_dev_path).unwrap();
+        let canonical_additional_project_path = fs::canonicalize(&additional_project_path).unwrap();
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_project_in_dev_path));
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_additional_project_path));
     }
 
     #[test]
@@ -820,8 +834,11 @@ mod tests {
         let entries = scanner.scan();
 
         assert_eq!(entries.len(), 1);
-        assert!(entries.iter().any(|e| e.resolved_path == project_a_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == project_b_path));
+
+        let canonical_project_a_path = fs::canonicalize(&project_a_path).unwrap();
+        let canonical_project_b_path = fs::canonicalize(&project_b_path).unwrap();
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_project_a_path));
+        assert!(!entries.iter().any(|e| e.resolved_path == canonical_project_b_path));
     }
 
      #[test]
@@ -839,8 +856,11 @@ mod tests {
         let entries = scanner.scan();
         
         assert_eq!(entries.len(), 1, "Only visible_project should be found. Entries: {:?}", entries);
-        assert!(entries.iter().any(|e| e.resolved_path == visible_project_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == hidden_project_path));
+
+        let canonical_visible_project_path = fs::canonicalize(&visible_project_path).unwrap();
+        let canonical_hidden_project_path = fs::canonicalize(&hidden_project_path).unwrap();
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_visible_project_path));
+        assert!(!entries.iter().any(|e| e.resolved_path == canonical_hidden_project_path));
     }
 
     #[test]
@@ -857,6 +877,8 @@ mod tests {
         let entries = scanner.scan();
         
         assert_eq!(entries.len(), 1, "Explicitly added hidden dir should be found. Entries: {:?}", entries);
-        assert!(entries.iter().any(|e| e.resolved_path == hidden_config_path));
+
+        let canonical_hidden_config_path = fs::canonicalize(&hidden_config_path).unwrap();
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_hidden_config_path));
     }
 }
