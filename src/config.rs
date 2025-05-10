@@ -10,6 +10,8 @@ struct CliArgs {
     debug: bool,
     // Placeholder for potential future arguments for paths or exclusions
     // For example:
+    #[arg(index = 1, help = "Direct path or name to select. If provided, fuzzy finder is skipped.")]
+    direct_selection: Option<String>,
     // #[arg(long, value_delimiter = ',', help = "Additional search paths, comma-separated")]
     // additional_paths: Option<Vec<PathBuf>>,
 }
@@ -20,6 +22,7 @@ pub struct Config {
     pub additional_paths: Vec<PathBuf>,
     pub exclude_patterns: Vec<Regex>,
     pub debug_mode: bool,
+    pub direct_selection: Option<String>,
 }
 
 impl Default for Config {
@@ -41,6 +44,7 @@ impl Default for Config {
             additional_paths: Vec::new(),
             exclude_patterns: Vec::new(), // No default exclude patterns for now, can be added if needed
             debug_mode: false,
+            direct_selection: None,
         }
     }
 }
@@ -54,6 +58,9 @@ impl Config {
         if cli_args.debug {
             default_config.debug_mode = true;
         }
+        
+        // Set direct_selection from CLI args
+        default_config.direct_selection = cli_args.direct_selection;
 
         // Here you would override other defaults if CliArgs had more fields
         // For example, if cli_args.additional_paths was Some(paths),

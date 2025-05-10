@@ -7,6 +7,7 @@ mod session_manager;
 
 use crate::config::Config; // Add this line
 use crate::directory_scanner::DirectoryScanner; // Add this line to import DirectoryScanner
+use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem}; // Import FuzzyFinder and SelectedItem
 use tracing::Level; // debug is already here, Level is used by setup_tracing
 
 // Add this function before main
@@ -20,8 +21,8 @@ fn setup_tracing(debug_mode: bool) {
 }
 
 // Modify the main function as follows:
-fn main() {
-    // Parse command-line arguments and create a Config instance
+fn main() -> anyhow::Result<()> { // Changed to return anyhow::Result for error propagation
+    // 1. Parse command-line arguments and create a Config instance
     let config = Config::new();
 
     // Setup tracing based on the debug_mode from config
@@ -37,64 +38,49 @@ fn main() {
     // The original tracing::debug!("Debug mode is enabled."); can be removed
     // as the config log above will show the debug_mode status.
 
-    // Create a DirectoryScanner instance
+    // 2. Create a DirectoryScanner instance and scan directories
     let scanner = DirectoryScanner::new(&config);
-
-    // Call scan() to get the list of directory entries
     tracing::info!("Starting directory scan via main...");
     let scanned_entries = scanner.scan();
     tracing::info!("Directory scan complete. Found {} entries.", scanned_entries.len());
 
-    // Print the results (for now)
-    // This will print regardless of debug_mode for now, as per "print the results (for now)"
-    if !scanned_entries.is_empty() {
-        println!("\nScanned Directory Entries:");
-        for entry in scanned_entries {
-            // Determine type string for display
-            let type_str = match entry.entry_type {
-                directory_scanner::DirectoryType::Plain => "Plain",
-                directory_scanner::DirectoryType::GitRepository => "Git Repo",
-                directory_scanner::DirectoryType::GitWorktree { .. } => "Git Worktree",
-                directory_scanner::DirectoryType::GitWorktreeContainer => "Git Worktree Container",
-            };
+    // 3. Initialize FuzzyFinder
+    let fuzzy_finder = FuzzyFinder::new();
+    let selection_result: anyhow::Result<Option<SelectedItem>>;
 
-            print!(
-                "  Type: {:<25} | Display: {:<40} | Path: {}",
-                type_str,
-                entry.display_name,
-                entry.path.display()
-            );
-
-            // Show parent repository for worktrees
-            if let directory_scanner::DirectoryType::GitWorktree { ref main_worktree_path } = entry.entry_type {
-                if let Some(parent_path) = &entry.parent_path {
-                    print!(" | Main Repo: {}", parent_path.display());
-                    // Ensure consistency: main_worktree_path from enum should match parent_path from struct
-                    if parent_path != main_worktree_path && cfg!(debug_assertions) {
-                        // This assertion helps catch discrepancies during development/debugging.
-                        // It's good practice to ensure these two paths are indeed the same.
-                        // In release builds, this assertion will be compiled out.
-                        // For production, a warning log might be more appropriate if they can diverge.
-                        tracing::warn!(
-                            "Mismatch between entry.parent_path ({}) and enum's main_worktree_path ({}) for worktree: {}",
-                            parent_path.display(), main_worktree_path.display(), entry.path.display()
-                        );
-                        // Depending on strictness, one might prefer to panic or handle this as an error.
-                        // For now, we'll just log a warning in debug builds if they differ.
-                        // The spec implies parent_path is the one to use for display if available.
-                    }
-                } else {
-                    // Fallback if parent_path is None, though it should be set for worktrees.
-                    print!(" | Main Repo Path (from type): {}", main_worktree_path.display());
-                }
-            }
-            // Optionally, show resolved path if different or for debugging
-            // if entry.path != entry.resolved_path {
-            //     print!(" | Resolved: {}", entry.resolved_path.display());
-            // }
-            println!(); // Newline for next entry
-        }
+    // 4. Perform selection (direct or fuzzy)
+    if let Some(direct_selection_target) = &config.direct_selection {
+        tracing::info!(target = %direct_selection_target, "Attempting direct selection.");
+        selection_result = fuzzy_finder.direct_select(&scanned_entries, direct_selection_target);
     } else {
-        println!("\nNo directory entries found matching the criteria.");
+        tracing::info!("No direct selection provided, launching fuzzy finder.");
+        if scanned_entries.is_empty() {
+            println!("No scannable project directories found. Nothing to select.");
+            return Ok(());
+        }
+        selection_result = fuzzy_finder.select(scanned_entries); // select takes ownership
     }
+
+    // 5. Handle the selection outcome
+    match selection_result {
+        Ok(Some(selected_item)) => {
+            println!("\nFinal Selection:");
+            println!("  Display Name: {}", selected_item.display_name);
+            println!("  Path: {}", selected_item.path.display());
+            // TODO: Proceed with tmux session management using selected_item
+        }
+        Ok(None) => {
+            println!("\nNo selection made or selection cancelled.");
+            if config.direct_selection.is_some() {
+                eprintln!("Direct selection target '{}' not found or was ambiguous.", config.direct_selection.as_ref().unwrap());
+            }
+        }
+        Err(e) => {
+            eprintln!("\nError during selection process: {}", e);
+            // Consider returning the error if main is to propagate it
+            // For now, just print and exit gracefully.
+            // return Err(e); // If main returns Result
+        }
+    }
+    Ok(())
 }
