@@ -304,26 +304,29 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
+        let commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
             .expect("Failed to create initial commit");
-        
-        // HEAD should now point to a valid branch with a commit.
-        let head_branch_ref = repo.head().expect("Failed to get HEAD reference");
-        // Ensure it's a direct reference to a branch, not detached HEAD or unborn.
-        assert!(head_branch_ref.is_branch(), "HEAD is not on a branch after initial commit");
+        let commit = repo.find_commit(commit_oid).unwrap();
+
+        // Main repo is on default branch (e.g. main/master)
+        // Create a new branch for the worktree to checkout
+        let worktree_branch_name = "worktree-specific-branch";
+        repo.branch(worktree_branch_name, &commit, false) // false = no force
+            .expect("Failed to create branch for worktree");
 
         let wt_dir = tempdir().unwrap();
         let wt_path = wt_dir.path();
-        let wt_name = "feature-branch";
+        let wt_name = "feature-branch"; // This is the worktree's directory/metadata name
 
         let mut opts = WorktreeAddOptions::new();
-        // Use the reference that HEAD points to (which should be a branch like refs/heads/main)
-        opts.reference(Some(&head_branch_ref)); 
+        // Set the reference for the worktree to be the new branch we created
+        let worktree_specific_ref = repo.find_reference(&format!("refs/heads/{}", worktree_branch_name)).unwrap();
+        opts.reference(Some(&worktree_specific_ref)); 
         
         let _git2_worktree = repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
         
         let worktrees = list_linked_worktrees(main_repo_dir.path()).unwrap();
-        assert_eq!(worktrees.len(), 1, "Should list one linked worktree");
+        assert_eq!(worktrees.len(), 1);
         assert_eq!(worktrees[0].name, wt_name);
         // git2::Worktree::path() returns canonicalized path, so we should compare canonicalized
         assert_eq!(fs::canonicalize(&worktrees[0].path).unwrap(), fs::canonicalize(wt_path).unwrap());
@@ -359,18 +362,21 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
+        let commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
             .expect("Failed to create initial commit");
+        let commit = repo.find_commit(commit_oid).unwrap();
 
-        let head_branch_ref = repo.head().expect("Failed to get HEAD reference");
-        assert!(head_branch_ref.is_branch(), "HEAD is not on a branch after initial commit");
+        let worktree_branch_name = "another-wt-branch";
+        repo.branch(worktree_branch_name, &commit, false)
+            .expect("Failed to create branch for worktree");
 
         let wt_dir = tempdir().unwrap(); 
         let wt_path = wt_dir.path();
-        let wt_name = "linked-feature";
+        let wt_name = "linked-feature"; // Worktree's directory/metadata name
         
         let mut opts = WorktreeAddOptions::new();
-        opts.reference(Some(&head_branch_ref));
+        let worktree_specific_ref = repo.find_reference(&format!("refs/heads/{}", worktree_branch_name)).unwrap();
+        opts.reference(Some(&worktree_specific_ref));
         repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
 
         let main_path_from_worktree = get_main_repository_path(wt_path).unwrap();
