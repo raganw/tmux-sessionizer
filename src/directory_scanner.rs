@@ -330,12 +330,21 @@ impl<'a> DirectoryScanner<'a> {
                                             Ok(repo) => {
                                                 if repo.is_worktree() {
                                                     match git_repository_handler::get_main_repository_path(&canonical_child_path) {
-                                                        Ok(main_repo_path) => {
+                                                        Ok(main_repo_path_val) => {
+                                                            // Ensure the path is canonical before comparison or storage.
+                                                            let current_main_repo_path = match fs::canonicalize(&main_repo_path_val) {
+                                                                Ok(p) => p,
+                                                                Err(e) => {
+                                                                    warn!(path = %main_repo_path_val.display(), error = %e, "Failed to canonicalize main repo path for worktree child {}, using as-is.", canonical_child_path.display());
+                                                                    main_repo_path_val // Fallback to the path as returned by the handler
+                                                                }
+                                                            };
+
                                                             if first_main_repo_path.is_none() {
-                                                                first_main_repo_path = Some(main_repo_path.clone());
-                                                                debug!(child_worktree = %canonical_child_path.display(), main_repo = %main_repo_path.display(), "First worktree found, setting common main repo path.");
-                                                            } else if first_main_repo_path != Some(main_repo_path.clone()) {
-                                                                debug!(child_worktree = %canonical_child_path.display(), main_repo = %main_repo_path.display(), expected_main_repo = ?first_main_repo_path, "Worktree belongs to a different main repo, parent not a container.");
+                                                                first_main_repo_path = Some(current_main_repo_path.clone());
+                                                                debug!(child_worktree = %canonical_child_path.display(), main_repo = %current_main_repo_path.display(), "First worktree found, setting common main repo path.");
+                                                            } else if first_main_repo_path.as_ref() != Some(&current_main_repo_path) {
+                                                                debug!(child_worktree = %canonical_child_path.display(), main_repo = %current_main_repo_path.display(), expected_main_repo = ?first_main_repo_path, "Worktree belongs to a different main repo, parent not a container.");
                                                                 all_children_are_qualifying_worktrees = false;
                                                                 break;
                                                             }
