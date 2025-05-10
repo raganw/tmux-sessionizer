@@ -30,8 +30,8 @@ impl Default for Config {
         // We'll handle tilde expansion when these paths are actually used,
         // or when the config is fully parsed. For Default, we'll store them as is.
         let default_search_paths = vec![
-            PathBuf::from("~/projects"),
-            PathBuf::from("~/dev"),
+            PathBuf::from("~/Development"),
+            PathBuf::from("~/.config"),
             // Add other common paths if known from the bash script
         ];
 
