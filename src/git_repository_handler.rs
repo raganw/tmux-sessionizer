@@ -99,7 +99,7 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>, Error> {
     let mut result = Vec::new();
     for wt_name_bytes in worktrees.iter() {
         if let Some(name_str) = wt_name_bytes {
-            let name = String::from_utf8_lossy(name_str).to_string();
+            let name = name_str.to_string();
             debug!(worktree_name = %name, "Processing worktree entry from list");
 
             match repo.find_worktree(&name) {
