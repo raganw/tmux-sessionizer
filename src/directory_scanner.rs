@@ -352,6 +352,20 @@ impl<'a> DirectoryScanner<'a> {
                         match list_linked_worktrees(&resolved_path) {
                             Ok(linked_worktrees) => {
                                 debug!(repo_path = %resolved_path.display(), count = linked_worktrees.len(), "Found linked worktrees");
+                                
+                                // Determine the correct reference path for the main repository display name.
+                                // If the current repo is bare, its actual .git directory path (repo.path())
+                                // should be used for naming its worktrees. Otherwise, use the resolved_path
+                                // of the directory we are currently processing.
+                                let main_repo_ref_path_for_display = if repo.is_bare() {
+                                    // repo.path() gives the path to the .git directory of the bare repo.
+                                    // We need to canonicalize it for consistency, though it should already be absolute.
+                                    // If canonicalization fails, fall back to repo.path() itself.
+                                    fs::canonicalize(repo.path()).unwrap_or_else(|_| repo.path().to_path_buf())
+                                } else {
+                                    resolved_path.clone()
+                                };
+
                                 for worktree_info in linked_worktrees {
                                     let wt_path_from_git = worktree_info.path;
                                     match fs::canonicalize(&wt_path_from_git) {
@@ -363,7 +377,7 @@ impl<'a> DirectoryScanner<'a> {
                                              self.add_worktree_entry(
                                                 wt_path_from_git.clone(),
                                                 canonical_wt_path,
-                                                &resolved_path, // The current repo is the main repo
+                                                &main_repo_ref_path_for_display, // Use the determined reference path
                                                 Some(worktree_info.name),
                                                 entries,
                                                 processed_resolved_paths,
