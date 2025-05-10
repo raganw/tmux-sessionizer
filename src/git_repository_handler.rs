@@ -134,36 +134,42 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf, Error> {
     let repo = match Repository::open(path_in_repo) {
         Ok(r) => r,
         Err(e) => {
-            error!(error = %e, "Failed to open repository to find main repository path");
+            error!(error = %e, "Failed to open repository to find main repository path for {}", path_in_repo.display());
             return Err(e);
         }
     };
 
-    let common_dir = repo.commondir();
-    debug!(common_dir = %common_dir.display(), "Found common_dir");
+    let main_path_candidate = if repo.is_worktree() {
+        // A worktree's .git file points to <main_repo_path>/.git/worktrees/<worktree_name>.
+        // repo.commondir() for a worktree gives <main_repo_path>/.git/worktrees/<worktree_name>.
+        // The parent of this is <main_repo_path>/.git/worktrees.
+        // The parent of *that* is <main_repo_path>/.git.
+        // The parent of *that* is <main_repo_path>.
 
-    // The parent of the common_dir (.git) is the main repository's root
-    // (workdir for non-bare, or the bare repo path itself).
-    match common_dir.parent() {
-        Some(main_path) => {
-            let canonical_main_path = main_path.to_path_buf();
-            // Further canonicalize to resolve any symlinks in the path itself
-            match std::fs::canonicalize(&canonical_main_path) {
-                Ok(p) => {
-                    debug!(path = %p.display(), "Determined main repository path");
-                    Ok(p)
-                }
-                Err(e) => {
-                     error!(path = %canonical_main_path.display(), error = %e, "Failed to canonicalize main repository path");
-                     // Fallback to non-canonicalized if canonicalization fails but path is plausible
-                     Ok(canonical_main_path)
-                }
-            }
+        let common_dir = repo.commondir(); // e.g., /path/to/main/.git/worktrees/wt_name
+        common_dir.parent() // e.g., /path/to/main/.git/worktrees
+            .and_then(|p| p.parent()) // e.g., /path/to/main/.git
+            .and_then(|p| p.parent()) // e.g., /path/to/main
+            .ok_or_else(|| Error::from_str("Could not determine main repository path from worktree commondir structure"))?
+            .to_path_buf()
+
+    } else if repo.is_bare() {
+        repo.path().to_path_buf() // For a bare repo, its own path is the main repository path.
+    } else {
+        // For a non-bare, non-worktree repository, its workdir is the main repository path.
+        repo.workdir().ok_or_else(|| Error::from_str("Non-bare, non-worktree repository has no workdir"))?.to_path_buf()
+    };
+    
+    debug!(candidate_main_path = %main_path_candidate.display(), "Candidate main repository path determined");
+
+    match std::fs::canonicalize(&main_path_candidate) {
+        Ok(p) => {
+            debug!(path = %p.display(), "Canonicalized main repository path");
+            Ok(p)
         }
-        None => {
-            let err_msg = "Common directory has no parent, cannot determine main repository path";
-            error!(common_dir = %common_dir.display(), "{}", err_msg);
-            Err(Error::from_str(err_msg))
+        Err(e) => {
+            error!(path = %main_path_candidate.display(), error = %e, "Failed to canonicalize main repository path, using non-canonical");
+            Ok(main_path_candidate)
         }
     }
 }
