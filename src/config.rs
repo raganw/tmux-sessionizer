@@ -31,6 +31,7 @@ impl Default for Config {
         // or when the config is fully parsed. For Default, we'll store them as is.
         let default_search_paths = vec![
             PathBuf::from("~/Development"),
+            PathBuf::from("~/Development/raganw"),
             PathBuf::from("~/.config"),
             // Add other common paths if known from the bash script
         ];
