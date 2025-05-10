@@ -2,9 +2,10 @@
 use crate::directory_scanner::DirectoryEntry;
 use anyhow::{anyhow, Context, Result}; // Add anyhow for error handling
 use skim::prelude::*; // Add skim prelude
+use std::fs; // For fs::canonicalize
 use std::io::Cursor; // To create a BufRead from String for Skim
 use std::path::PathBuf;
-use tracing::debug; // For logging
+use tracing::{debug, warn}; // For logging, added warn
 
 /// Represents an item selected by the user from the fuzzy finder.
 #[derive(Debug, Clone)]
@@ -159,12 +160,145 @@ impl FuzzyFinder {
             ))
         }
     }
+
+    /// Attempts to directly select a directory entry based on a search target string.
+    ///
+    /// This method tries several strategies to find a unique match:
+    /// 1. Exact match on the canonicalized version of `search_target_raw` against `entry.resolved_path`.
+    /// 2. Exact match on `search_target_raw` (as a path) against `entry.path` (original path).
+    /// 3. Suffix match: `entry.resolved_path` ends with `search_target_raw`.
+    /// 4. Exact match: `entry.display_name` equals `search_target_raw`.
+    /// 5. Filename match: `entry.resolved_path.file_name()` equals `search_target_raw`.
+    ///
+    /// If multiple entries match by suffix, display name, or filename, an error is returned
+    /// indicating ambiguity.
+    ///
+    /// # Arguments
+    ///
+    /// * `entries` - A slice of `DirectoryEntry` items to search within.
+    /// * `search_target_raw` - The string to search for, typically from a command-line argument.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Some(SelectedItem))` if a unique match is found.
+    /// * `Ok(None)` if no match is found.
+    /// * `Err(anyhow::Error)` if an error occurs (e.g., ambiguity, I/O error during canonicalization).
+    pub fn direct_select(
+        &self,
+        entries: &[DirectoryEntry],
+        search_target_raw: &str,
+    ) -> Result<Option<SelectedItem>> {
+        if entries.is_empty() {
+            debug!("Direct selection: No entries provided, cannot select.");
+            return Ok(None);
+        }
+
+        debug!(
+            "Direct selection: Attempting to find '{}' in {} entries.",
+            search_target_raw,
+            entries.len()
+        );
+
+        let search_target_path = PathBuf::from(search_target_raw);
+
+        // Priority 1: Canonical Path Match
+        match fs::canonicalize(&search_target_path) {
+            Ok(canonical_target) => {
+                if let Some(entry) = entries.iter().find(|e| e.resolved_path == canonical_target) {
+                    debug!(
+                        "Direct selection: Matched canonical path '{}' to entry '{}' ({})",
+                        canonical_target.display(),
+                        entry.display_name,
+                        entry.resolved_path.display()
+                    );
+                    return Ok(Some(SelectedItem {
+                        display_name: entry.display_name.clone(),
+                        path: entry.resolved_path.clone(),
+                    }));
+                }
+            }
+            Err(e) => {
+                if e.kind() != std::io::ErrorKind::NotFound || search_target_path.components().count() > 1 || search_target_path.is_absolute() {
+                    debug!(
+                        "Direct selection: Failed to canonicalize search target '{}': {}. Continuing with other matching strategies.",
+                        search_target_path.display(), e
+                    );
+                } else {
+                     debug!(
+                        "Direct selection: Search target '{}' not found as a direct canonicalizable path (error: {}). Trying other strategies.",
+                        search_target_path.display(), e
+                    );
+                }
+            }
+        }
+
+        // Priority 2: Exact match on `entry.path` (original path before resolution)
+        if let Some(entry) = entries.iter().find(|e| e.path == search_target_path) {
+             debug!(
+                "Direct selection: Matched original path '{}' to entry '{}' ({})",
+                search_target_path.display(),
+                entry.display_name,
+                entry.path.display()
+            );
+            return Ok(Some(SelectedItem {
+                display_name: entry.display_name.clone(),
+                path: entry.resolved_path.clone(), // Still use resolved_path for tmux
+            }));
+        }
+
+        // Priority 3: Suffix match on `entry.resolved_path`
+        let suffix_matches: Vec<&DirectoryEntry> = entries
+            .iter()
+            .filter(|e| e.resolved_path.ends_with(&search_target_path))
+            .collect();
+
+        if suffix_matches.len() == 1 {
+            let entry = suffix_matches[0];
+            debug!(
+                "Direct selection: Matched suffix '{}' to entry '{}' ({})",
+                search_target_path.display(), entry.display_name, entry.resolved_path.display()
+            );
+            return Ok(Some(SelectedItem { display_name: entry.display_name.clone(), path: entry.resolved_path.clone() }));
+        } else if suffix_matches.len() > 1 {
+            let matched_paths: Vec<String> = suffix_matches.iter().map(|e| e.resolved_path.display().to_string()).collect();
+            warn!("Direct selection: Search target '{}' is ambiguous by suffix, matched: {:?}", search_target_raw, matched_paths);
+            return Err(anyhow!("Search target '{}' is ambiguous: {} entries end with this path. Matches: {:?}", search_target_raw, suffix_matches.len(), matched_paths));
+        }
+
+        // Priority 4: Exact match on `entry.display_name`
+        let display_name_matches: Vec<&DirectoryEntry> = entries.iter().filter(|e| e.display_name == search_target_raw).collect();
+        if display_name_matches.len() == 1 {
+            let entry = display_name_matches[0];
+            debug!("Direct selection: Matched display name '{}' to entry '{}' ({})", search_target_raw, entry.display_name, entry.resolved_path.display());
+            return Ok(Some(SelectedItem { display_name: entry.display_name.clone(), path: entry.resolved_path.clone() }));
+        } else if display_name_matches.len() > 1 {
+            let matched_displays: Vec<String> = display_name_matches.iter().map(|e| format!("{} ({})", e.display_name, e.resolved_path.display())).collect();
+            warn!("Direct selection: Search target '{}' is ambiguous by display name, matched: {:?}", search_target_raw, matched_displays);
+            return Err(anyhow!("Search target '{}' is ambiguous: {} entries have this display name. Matches: {:?}", search_target_raw, display_name_matches.len(), matched_displays));
+        }
+
+        // Priority 5: Filename match on `entry.resolved_path.file_name()`
+        let filename_matches: Vec<&DirectoryEntry> = entries.iter().filter(|e| e.resolved_path.file_name().map_or(false, |name| name == search_target_raw)).collect();
+        if filename_matches.len() == 1 {
+            let entry = filename_matches[0];
+            debug!("Direct selection: Matched filename '{}' to entry '{}' ({})", search_target_raw, entry.display_name, entry.resolved_path.display());
+            return Ok(Some(SelectedItem { display_name: entry.display_name.clone(), path: entry.resolved_path.clone() }));
+        } else if filename_matches.len() > 1 {
+            let matched_filenames: Vec<String> = filename_matches.iter().map(|e| format!("{} ({})", e.resolved_path.file_name().unwrap_or_default().to_string_lossy(), e.resolved_path.display())).collect();
+            warn!("Direct selection: Search target '{}' is ambiguous by filename, matched: {:?}", search_target_raw, matched_filenames);
+            return Err(anyhow!("Search target '{}' is ambiguous: {} entries have this filename. Matches: {:?}", search_target_raw, filename_matches.len(), matched_filenames));
+        }
+
+        debug!("Direct selection: No unique match found for '{}'", search_target_raw);
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::directory_scanner::DirectoryType; // For creating test DirectoryEntry
+    use tempfile::tempdir; // For creating test directories and symlinks
 
     #[test]
     fn test_format_directory_entry_for_skim_plain() {
@@ -251,5 +385,136 @@ mod tests {
         let result = finder.select(entries);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
+    }
+
+    // Helper to create DirectoryEntry for direct_select tests
+    fn new_test_entry(p_str: &str, rp_str: &str, dn_str: &str) -> DirectoryEntry {
+        DirectoryEntry {
+            path: PathBuf::from(p_str),
+            resolved_path: PathBuf::from(rp_str),
+            display_name: dn_str.to_string(),
+            entry_type: DirectoryType::Plain,
+            parent_path: None,
+        }
+    }
+
+    #[test]
+    fn test_direct_select_empty_entries() {
+        let finder = FuzzyFinder::new();
+        let entries = Vec::new();
+        let result = finder.direct_select(&entries, "anything");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_direct_select_no_match() {
+        let finder = FuzzyFinder::new();
+        let entries = vec![
+            new_test_entry("/path/to/project_a", "/resolved/project_a", "project_a"),
+        ];
+        let result = finder.direct_select(&entries, "nonexistent_project");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_direct_select_canonical_path_match() {
+        let finder = FuzzyFinder::new();
+        let temp_dir = tempdir().unwrap();
+        let project_path = temp_dir.path().join("my_project");
+        fs::create_dir(&project_path).unwrap();
+        let canonical_project_path = fs::canonicalize(&project_path).unwrap();
+
+        let entries = vec![
+            DirectoryEntry {
+                path: project_path.clone(),
+                resolved_path: canonical_project_path.clone(),
+                display_name: "my_project_display".to_string(),
+                entry_type: DirectoryType::Plain,
+                parent_path: None,
+            },
+        ];
+        let result = finder.direct_select(&entries, project_path.to_str().unwrap());
+        assert!(result.is_ok());
+        let selection = result.unwrap().expect("Should have found a selection");
+        assert_eq!(selection.display_name, "my_project_display");
+        assert_eq!(selection.path, canonical_project_path);
+        fs::remove_dir(&project_path).unwrap();
+    }
+
+    #[test]
+    fn test_direct_select_original_path_match() {
+        let finder = FuzzyFinder::new();
+        let temp_target_dir = tempdir().unwrap();
+        let project_target_path = temp_target_dir.path().join("actual_project");
+        fs::create_dir(&project_target_path).unwrap();
+        let canonical_project_target_path = fs::canonicalize(&project_target_path).unwrap();
+
+        let temp_link_dir = tempdir().unwrap();
+        let symlink_path = temp_link_dir.path().join("project_link");
+        #[cfg(unix)] std::os::unix::fs::symlink(&project_target_path, &symlink_path).unwrap();
+        #[cfg(windows)] std::os::windows::fs::symlink_dir(&project_target_path, &symlink_path).unwrap();
+        
+        // Skip test if symlink creation failed (e.g. permissions on Windows, or not supported)
+        if !symlink_path.exists() && !symlink_path.is_symlink() {
+            warn!("Symlink creation failed or not supported, skipping test_direct_select_original_path_match");
+            return;
+        }
+
+        let entries = vec![
+            DirectoryEntry {
+                path: symlink_path.clone(),
+                resolved_path: canonical_project_target_path.clone(),
+                display_name: "linked_project".to_string(),
+                entry_type: DirectoryType::Plain,
+                parent_path: None,
+            },
+        ];
+        let result = finder.direct_select(&entries, symlink_path.to_str().unwrap());
+        assert!(result.is_ok(), "Result was: {:?}", result.err());
+        let selection = result.unwrap().expect("Should have found a selection by original path");
+        assert_eq!(selection.display_name, "linked_project");
+        assert_eq!(selection.path, canonical_project_target_path);
+        
+        // fs::remove_file on symlink, or remove_dir if it's a directory symlink
+        #[cfg(unix)] fs::remove_file(&symlink_path).unwrap_or_else(|e| eprintln!("Failed to remove symlink file: {}",e));
+        #[cfg(windows)] fs::remove_dir(&symlink_path).unwrap_or_else(|e| eprintln!("Failed to remove symlink dir: {}",e));
+        fs::remove_dir(&project_target_path).unwrap();
+    }
+
+    #[test]
+    fn test_direct_select_suffix_match_unique() {
+        let finder = FuzzyFinder::new();
+        let entries = vec![
+            new_test_entry("/p/to/project_a", "/resolved/path/to/project_a", "project_a"),
+            new_test_entry("/a/p/project_b", "/resolved/another/path/project_b", "project_b"),
+        ];
+        let result = finder.direct_select(&entries, "to/project_a");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().unwrap().display_name, "project_a");
+    }
+
+    #[test]
+    fn test_direct_select_display_name_match_unique() {
+        let finder = FuzzyFinder::new();
+        let entries = vec![
+            new_test_entry("/p/proj1", "/resolved/proj1", "unique_name_1"),
+            new_test_entry("/p/proj2", "/resolved/proj2", "unique_name_2"),
+        ];
+        let result = finder.direct_select(&entries, "unique_name_1");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().unwrap().resolved_path, PathBuf::from("/resolved/proj1"));
+    }
+
+    #[test]
+    fn test_direct_select_filename_match_ambiguous() {
+        let finder = FuzzyFinder::new();
+        let entries = vec![
+            new_test_entry("/some/common_name", "/resolved/some/path/common_name", "display1"),
+            new_test_entry("/another/common_name", "/resolved/another/path/common_name", "display2"),
+        ];
+        let result = finder.direct_select(&entries, "common_name");
+        assert!(result.is_err());
     }
 }
