@@ -641,15 +641,17 @@ mod tests {
     #[test]
     #[cfg(unix)] // Symlinks are tricky on Windows and might require admin rights
     fn test_check_if_worktree_container_with_symlink_to_worktree() {
-        let main_repo_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_dir.path());
+        let main_repo_temp_dir = tempdir().unwrap(); // Temp dir for the bare repo
+        let _main_repo = init_bare_repo(main_repo_temp_dir.path());
 
-        let actual_wt_dir = tempdir().unwrap(); // Actual worktree location
-        add_worktree_to_bare(&_main_repo, "actual_wt1", actual_wt_dir.path());
+        let actual_wt_parent_dir = tempdir().unwrap(); // Parent for actual worktree's physical location
+        let actual_wt_physical_path = actual_wt_parent_dir.path().join("actual_wt1_loc");
+        // actual_wt_physical_path does not exist yet, add_worktree_to_bare will create it.
+        add_worktree_to_bare(&_main_repo, "actual_wt1", &actual_wt_physical_path);
         
-        let container_dir = tempdir().unwrap();
+        let container_dir = tempdir().unwrap(); // This is the dir we are testing
         let symlink_path = container_dir.path().join("sym_wt1");
-        std::os::unix::fs::symlink(actual_wt_dir.path(), symlink_path).unwrap();
+        std::os::unix::fs::symlink(&actual_wt_physical_path, symlink_path).unwrap();
 
         let config = default_test_config();
         let scanner = DirectoryScanner::new(&config);
@@ -659,15 +661,16 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_check_if_worktree_container_with_symlink_to_file() {
-        let main_repo_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_dir.path());
+        let main_repo_temp_dir = tempdir().unwrap(); // Temp dir for the bare repo
+        let _main_repo = init_bare_repo(main_repo_temp_dir.path());
 
-        let container_dir = tempdir().unwrap();
+        let container_dir = tempdir().unwrap(); // Dir we are testing
         let wt1_path = container_dir.path().join("wt1");
         add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
 
-        let file_path = tempdir().unwrap().path().join("target_file.txt");
-        File::create(&file_path).unwrap();
+        let file_target_temp_dir = tempdir().unwrap(); // TempDir for the target file, ensure it lives
+        let file_path = file_target_temp_dir.path().join("target_file.txt");
+        File::create(&file_path).unwrap(); // Now file_path's parent exists
         let symlink_path = container_dir.path().join("sym_to_file");
         std::os::unix::fs::symlink(&file_path, symlink_path).unwrap();
         
