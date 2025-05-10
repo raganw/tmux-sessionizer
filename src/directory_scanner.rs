@@ -88,6 +88,149 @@ impl<'a> DirectoryScanner<'a> {
         processed_resolved_paths.insert(resolved_wt_path);
     }
 
+    /// Checks if the given path, which is known to be a bare Git repository,
+    /// serves primarily as an exclusive container for its own worktrees.
+    ///
+    /// An exclusive container has direct children that are:
+    /// 1. The `.git` file/directory that defines the container itself as a repo.
+    /// 2. The actual bare repository directory (if different from the container path, e.g., `container/.git` points to `container/actual_bare.git`).
+    /// 3. Git worktrees whose main repository is this bare repository.
+    /// It must contain at least one such worktree and no other files or non-qualifying directories at its top level.
+    ///
+    /// Returns `true` if it's an exclusive worktree container for its own bare repo, `false` otherwise.
+    fn is_bare_repo_worktree_exclusive_container(&self, container_candidate_path: &Path, bare_repo: &Repository) -> bool {
+        let container_check_span = span!(Level::DEBUG, "is_bare_repo_worktree_exclusive_container", path = %container_candidate_path.display());
+        let _enter = container_check_span.enter();
+
+        let mut worktree_children_count = 0;
+        let mut all_children_are_qualifying_or_ignored = true;
+
+        let canonical_bare_repo_dotgit_path = match fs::canonicalize(bare_repo.path()) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(path = %bare_repo.path().display(), error = %e, "Failed to canonicalize bare repo .git path, cannot reliably check for container status.");
+                return false; // Cannot determine, assume not a container
+            }
+        };
+        debug!(path = %container_candidate_path.display(), bare_repo_dotgit_path = %canonical_bare_repo_dotgit_path.display(), "Checking for bare repo exclusive container");
+
+        match fs::read_dir(container_candidate_path) {
+            Ok(dir_entries) => {
+                for entry_result in dir_entries {
+                    match entry_result {
+                        Ok(entry) => {
+                            let child_path = entry.path();
+                            let child_name = child_path.file_name().unwrap_or_default();
+
+                            // 1. Ignore the .git file/directory in the container_candidate_path itself.
+                            // This is what makes container_candidate_path a repo.
+                            if child_name == OsStr::new(".git") {
+                                debug!(child = %child_path.display(), "Ignoring .git entry in container.");
+                                continue;
+                            }
+
+                            let canonical_child_path = match fs::canonicalize(&child_path) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    warn!(child = %child_path.display(), error = %e, "Could not canonicalize child path, assuming not a qualifying worktree container child.");
+                                    all_children_are_qualifying_or_ignored = false;
+                                    break;
+                                }
+                            };
+
+                            // 2. Ignore the directory that is the actual bare repo's .git directory, if it's a direct child.
+                            // (e.g. container_candidate_path/actual_bare.git/ where bare_repo.path() points to actual_bare.git/)
+                            if canonical_child_path == canonical_bare_repo_dotgit_path {
+                                debug!(child = %child_path.display(), "Ignoring actual bare repo .git directory child.");
+                                continue;
+                            }
+
+                            let child_file_type = match entry.file_type() {
+                                Ok(ft) => ft,
+                                Err(e) => {
+                                    warn!(child = %child_path.display(), error = %e, "Could not get file type for child, assuming not a qualifying worktree container child.");
+                                    all_children_are_qualifying_or_ignored = false;
+                                    break;
+                                }
+                            };
+
+                            if child_file_type.is_file() {
+                                debug!(child = %child_path.display(), "Child is a file, parent not an exclusive bare repo worktree container.");
+                                all_children_are_qualifying_or_ignored = false;
+                                break;
+                            }
+
+                            if child_file_type.is_dir() { // Symlinks to dirs are fine if they are worktrees
+                                match Repository::open(&canonical_child_path) {
+                                    Ok(child_repo) => {
+                                        if child_repo.is_worktree() {
+                                            match git_repository_handler::get_main_repository_path(&canonical_child_path) {
+                                                Ok(wt_main_repo_path) => {
+                                                    match fs::canonicalize(&wt_main_repo_path) {
+                                                        Ok(canonical_wt_main_repo_path) => {
+                                                            if canonical_wt_main_repo_path == canonical_bare_repo_dotgit_path {
+                                                                debug!(child_worktree = %canonical_child_path.display(), "Child is a qualifying worktree of this bare repo.");
+                                                                worktree_children_count += 1;
+                                                            } else {
+                                                                debug!(child_worktree = %canonical_child_path.display(), main_repo = %canonical_wt_main_repo_path.display(), expected_main_repo = %canonical_bare_repo_dotgit_path.display(), "Child worktree belongs to a different main repo.");
+                                                                all_children_are_qualifying_or_ignored = false;
+                                                                break;
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            warn!(wt_main_repo_path = %wt_main_repo_path.display(), error = %e, "Failed to canonicalize worktree's main repo path.");
+                                                            all_children_are_qualifying_or_ignored = false;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => { // Failed to get main repo path for child worktree
+                                                    warn!(child_worktree = %canonical_child_path.display(), error = %e, "Failed to get main repository path for worktree child.");
+                                                    all_children_are_qualifying_or_ignored = false;
+                                                    break;
+                                                }
+                                            }
+                                        } else { // Child is a Git repo, but not a worktree
+                                            debug!(child = %canonical_child_path.display(), "Child is a Git repository but not a worktree.");
+                                            all_children_are_qualifying_or_ignored = false;
+                                            break;
+                                        }
+                                    }
+                                    Err(_) => { // Child is not a Git repository at all
+                                        debug!(child = %canonical_child_path.display(), "Child is not a Git repository.");
+                                        all_children_are_qualifying_or_ignored = false;
+                                        break;
+                                    }
+                                }
+                            } else { // Neither file, dir, nor symlink to dir (symlink to file would have been caught by child_file_type.is_file() if symlink followed)
+                                debug!(child = %child_path.display(), "Child is of unexpected type.");
+                                all_children_are_qualifying_or_ignored = false;
+                                break;
+                            }
+                        }
+                        Err(e) => { // Error reading a specific directory entry
+                            warn!(path = %container_candidate_path.display(), error = %e, "Error iterating directory entry.");
+                            all_children_are_qualifying_or_ignored = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => { // Error reading the parent directory itself
+                warn!(path = %container_candidate_path.display(), error = %e, "Could not read directory to check for bare repo container status.");
+                return false; // Cannot determine, so assume not a container
+            }
+        }
+
+        let is_container = all_children_are_qualifying_or_ignored && worktree_children_count > 0;
+        if is_container {
+            debug!(path = %container_candidate_path.display(), worktree_count = worktree_children_count, "Path IS an exclusive bare repo worktree container.");
+        } else {
+            debug!(path = %container_candidate_path.display(), all_children_ok = all_children_are_qualifying_or_ignored, worktree_count = worktree_children_count, "Path is NOT an exclusive bare repo worktree container.");
+        }
+        is_container
+    }
+
 
     fn process_path_candidate(
         &self,
@@ -179,22 +322,37 @@ impl<'a> DirectoryScanner<'a> {
                             }
                         }
                     } else { // Main Git repository (standard or bare)
-                        debug!(path = %resolved_path.display(), name = %basename_of_resolved_path, "Adding Git repository entry");
-                        let repo_entry = DirectoryEntry {
-                            path: original_path.clone(), // Use original path
-                            resolved_path: resolved_path.clone(),
-                            display_name: basename_of_resolved_path.clone(), // Basename of resolved_path
-                            entry_type: DirectoryType::GitRepository,
-                            parent_path: None,
-                        };
-                        entries.push(repo_entry);
-                        processed_resolved_paths.insert(resolved_path.clone());
+                        let mut add_repo_entry_as_git_repository = true;
 
+                        if repo.is_bare() {
+                            if self.is_bare_repo_worktree_exclusive_container(&resolved_path, &repo) {
+                                debug!(path = %resolved_path.display(), "Identified as a bare repo worktree exclusive container. Skipping direct entry for the container itself, but its worktrees will be listed.");
+                                add_repo_entry_as_git_repository = false;
+                                // Do NOT add to processed_resolved_paths here for the container itself.
+                            }
+                        }
+
+                        if add_repo_entry_as_git_repository {
+                            let repo_type_str = if repo.is_bare() { "bare Git repository" } else { "standard Git repository" };
+                            debug!(path = %resolved_path.display(), name = %basename_of_resolved_path, type = repo_type_str, "Adding Git repository entry");
+                            let repo_entry = DirectoryEntry {
+                                path: original_path.clone(),
+                                resolved_path: resolved_path.clone(),
+                                display_name: basename_of_resolved_path.clone(),
+                                entry_type: DirectoryType::GitRepository,
+                                parent_path: None,
+                            };
+                            entries.push(repo_entry);
+                            processed_resolved_paths.insert(resolved_path.clone());
+                        }
+
+                        // Always try to list linked worktrees for any repository (bare or not, container or not)
+                        // that is not itself a worktree.
                         match list_linked_worktrees(&resolved_path) {
                             Ok(linked_worktrees) => {
                                 debug!(repo_path = %resolved_path.display(), count = linked_worktrees.len(), "Found linked worktrees");
                                 for worktree_info in linked_worktrees {
-                                    let wt_path_from_git = worktree_info.path; // Path as stored in git
+                                    let wt_path_from_git = worktree_info.path;
                                     match fs::canonicalize(&wt_path_from_git) {
                                         Ok(canonical_wt_path) => {
                                             if !canonical_wt_path.is_dir() {
@@ -202,10 +360,10 @@ impl<'a> DirectoryScanner<'a> {
                                                 continue;
                                             }
                                              self.add_worktree_entry(
-                                                wt_path_from_git.clone(), // Original is path from git
-                                                canonical_wt_path,        // Resolved path
+                                                wt_path_from_git.clone(),
+                                                canonical_wt_path,
                                                 &resolved_path, // The current repo is the main repo
-                                                Some(worktree_info.name), // Name from git, not used for display but passed
+                                                Some(worktree_info.name),
                                                 entries,
                                                 processed_resolved_paths,
                                             );
@@ -280,6 +438,7 @@ impl<'a> DirectoryScanner<'a> {
     /// directories, each of those is a Git worktree, and all those worktrees belong
     /// to the same main repository. It must also contain at least one such worktree
     /// and no other files or non-qualifying directories at its top level.
+    /// This function is for paths that are NOT git repositories themselves.
     ///
     /// Returns `true` if it's a worktree container, `false` otherwise.
     fn check_if_worktree_container(&self, path_to_check: &Path) -> bool {
@@ -527,6 +686,7 @@ mod tests {
 
         // For a bare repo, worktrees are added relative to its path, but the actual worktree dir can be elsewhere.
         // We need to ensure the worktree_path exists.
+        fs::create_dir_all(worktree_path.parent().unwrap()).expect("Failed to create parent for worktree path");
         let mut opts = WorktreeAddOptions::new();
         bare_repo
             .worktree(worktree_name, worktree_path, Some(&mut opts))
@@ -545,6 +705,161 @@ mod tests {
             // Initialize other fields if they become non-optional or affect tests
         }
     }
+
+    // Test for the new is_bare_repo_worktree_exclusive_container
+    #[test]
+    fn test_is_bare_repo_worktree_exclusive_container_true() {
+        let base_dir = tempdir().unwrap();
+        let container_path = base_dir.path().join("project_container");
+        fs::create_dir(&container_path).unwrap();
+
+        // Create the .git file pointing to the bare repo
+        let bare_repo_actual_path = container_path.join("actual_bare.git");
+        fs::create_dir(&bare_repo_actual_path).unwrap(); // Create dir for bare repo
+        let _bare_repo_git_object = init_bare_repo(&bare_repo_actual_path); // Initialize it
+
+        // Create .git file in container_path
+        fs::write(container_path.join(".git"), format!("gitdir: {}", bare_repo_actual_path.file_name().unwrap().to_str().unwrap())).unwrap();
+        
+        // Open the container as a repo (it should resolve to the bare repo)
+        let container_repo = Repository::open(&container_path).expect("Failed to open container as repo");
+        assert!(container_repo.is_bare(), "Container repo should be bare");
+
+        // Add worktrees as children of container_path
+        let wt1_path = container_path.join("worktree1");
+        add_worktree_to_bare(&container_repo, "worktree1", &wt1_path);
+        let wt2_path = container_path.join("worktree2");
+        add_worktree_to_bare(&container_repo, "worktree2", &wt2_path);
+        
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        
+        assert!(scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should be an exclusive bare repo container");
+    }
+
+    #[test]
+    fn test_is_bare_repo_worktree_exclusive_container_false_with_extra_file() {
+        let base_dir = tempdir().unwrap();
+        let container_path = base_dir.path().join("project_container_extra_file");
+        fs::create_dir(&container_path).unwrap();
+
+        let bare_repo_actual_path = container_path.join("actual_bare.git");
+        fs::create_dir(&bare_repo_actual_path).unwrap();
+        let _ = init_bare_repo(&bare_repo_actual_path);
+        fs::write(container_path.join(".git"), format!("gitdir: {}", bare_repo_actual_path.file_name().unwrap().to_str().unwrap())).unwrap();
+        
+        let container_repo = Repository::open(&container_path).unwrap();
+
+        let wt1_path = container_path.join("worktree1");
+        add_worktree_to_bare(&container_repo, "worktree1", &wt1_path);
+        
+        File::create(container_path.join("extra_file.txt")).unwrap(); // Add an extra file
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should not be an exclusive container due to extra file");
+    }
+
+    #[test]
+    fn test_is_bare_repo_worktree_exclusive_container_false_with_unrelated_dir() {
+        let base_dir = tempdir().unwrap();
+        let container_path = base_dir.path().join("project_container_extra_dir");
+        fs::create_dir(&container_path).unwrap();
+
+        let bare_repo_actual_path = container_path.join("actual_bare.git");
+        fs::create_dir(&bare_repo_actual_path).unwrap();
+        let _ = init_bare_repo(&bare_repo_actual_path);
+        fs::write(container_path.join(".git"), format!("gitdir: {}", bare_repo_actual_path.file_name().unwrap().to_str().unwrap())).unwrap();
+        
+        let container_repo = Repository::open(&container_path).unwrap();
+
+        let wt1_path = container_path.join("worktree1");
+        add_worktree_to_bare(&container_repo, "worktree1", &wt1_path);
+        
+        fs::create_dir(container_path.join("unrelated_dir")).unwrap(); // Add an unrelated directory
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should not be an exclusive container due to unrelated dir");
+    }
+    
+    #[test]
+    fn test_is_bare_repo_worktree_exclusive_container_false_no_worktrees() {
+        let base_dir = tempdir().unwrap();
+        let container_path = base_dir.path().join("project_container_no_wt");
+        fs::create_dir(&container_path).unwrap();
+
+        let bare_repo_actual_path = container_path.join("actual_bare.git");
+        fs::create_dir(&bare_repo_actual_path).unwrap();
+        let _ = init_bare_repo(&bare_repo_actual_path);
+        fs::write(container_path.join(".git"), format!("gitdir: {}", bare_repo_actual_path.file_name().unwrap().to_str().unwrap())).unwrap();
+        
+        let container_repo = Repository::open(&container_path).unwrap();
+        // No worktrees added
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should not be an exclusive container as there are no worktrees");
+    }
+
+    #[test]
+    fn test_scan_skips_bare_repo_container_lists_its_worktrees() {
+        let base_dir = tempdir().unwrap();
+        
+        // Setup the container structure
+        let container_path = base_dir.path().join("my_bare_container");
+        fs::create_dir(&container_path).unwrap();
+        let bare_repo_dir_name = "internal_bare.git";
+        let bare_repo_actual_path = container_path.join(bare_repo_dir_name);
+        fs::create_dir(&bare_repo_actual_path).unwrap();
+        let _ = init_bare_repo(&bare_repo_actual_path); // Initialize the bare repo
+        fs::write(container_path.join(".git"), format!("gitdir: {}", bare_repo_dir_name)).unwrap(); // Link .git file
+
+        let container_repo_obj = Repository::open(&container_path).expect("Failed to open container path as repo for test setup");
+
+        let wt1_path = container_path.join("feature_a");
+        add_worktree_to_bare(&container_repo_obj, "feature_a", &wt1_path);
+        let wt2_path = container_path.join("bugfix_b");
+        add_worktree_to_bare(&container_repo_obj, "bugfix_b", &wt2_path);
+
+        // Add a plain project for control
+        let plain_project_path = base_dir.path().join("plain_old_project");
+        fs::create_dir(&plain_project_path).unwrap();
+
+        let mut config = default_test_config();
+        config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan children of base_dir
+
+        let scanner = DirectoryScanner::new(&config);
+        let entries = scanner.scan();
+
+        let canonical_container_path = fs::canonicalize(&container_path).unwrap();
+        let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap();
+        let canonical_wt2_path = fs::canonicalize(&wt2_path).unwrap();
+        let canonical_plain_project_path = fs::canonicalize(&plain_project_path).unwrap();
+
+        // The container itself should NOT be an entry
+        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_path), "Bare repo container itself should be skipped. Entries: {:?}", entries);
+        
+        // Its worktrees SHOULD be entries
+        let wt1_entry = entries.iter().find(|e| e.resolved_path == canonical_wt1_path);
+        assert!(wt1_entry.is_some(), "Worktree 1 should be listed. Entries: {:?}", entries);
+        assert!(matches!(wt1_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 1 should be of type GitWorktree");
+        assert_eq!(wt1_entry.unwrap().display_name, format!("[{}] feature_a", bare_repo_dir_name));
+
+
+        let wt2_entry = entries.iter().find(|e| e.resolved_path == canonical_wt2_path);
+        assert!(wt2_entry.is_some(), "Worktree 2 should be listed. Entries: {:?}", entries);
+        assert!(matches!(wt2_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 2 should be of type GitWorktree");
+        assert_eq!(wt2_entry.unwrap().display_name, format!("[{}] bugfix_b", bare_repo_dir_name));
+
+
+        // The plain project should be an entry
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_project_path && e.entry_type == DirectoryType::Plain), "Plain project should be listed. Entries: {:?}", entries);
+
+        // Total entries: wt1, wt2, plain_project = 3
+        assert_eq!(entries.len(), 3, "Expected 3 entries (2 worktrees, 1 plain project). Entries: {:?}", entries);
+    }
+
 
     #[test]
     fn test_check_if_worktree_container_valid_two_worktrees() {
@@ -689,61 +1004,46 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_excludes_worktree_container() {
+    fn test_scan_excludes_worktree_container() { // This tests the original check_if_worktree_container
         let base_dir = tempdir().unwrap();
-        let main_repo_dir = base_dir.path().join("main_bare_repo");
+        let main_repo_dir = base_dir.path().join("main_bare_repo_for_other_container"); // Different main repo
         fs::create_dir(&main_repo_dir).unwrap();
         let _main_repo = init_bare_repo(&main_repo_dir);
 
-        let container_dir_path = base_dir.path().join("worktree_holder");
-        fs::create_dir(&container_dir_path).unwrap();
+        // This container is NOT a repo itself, its children are worktrees of _main_repo
+        let non_repo_container_dir_path = base_dir.path().join("non_repo_worktree_holder");
+        fs::create_dir(&non_repo_container_dir_path).unwrap();
         
-        let wt1_path = container_dir_path.join("wt1");
-        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
-        let wt2_path = container_dir_path.join("wt2");
-        add_worktree_to_bare(&_main_repo, "wt2", &wt2_path);
+        let wt1_path = non_repo_container_dir_path.join("wt1_in_non_repo_container");
+        add_worktree_to_bare(&_main_repo, "wt1_in_non_repo_container", &wt1_path);
+        let wt2_path = non_repo_container_dir_path.join("wt2_in_non_repo_container");
+        add_worktree_to_bare(&_main_repo, "wt2_in_non_repo_container", &wt2_path);
 
-        // Also add a plain directory to be found
-        let plain_dir_path = base_dir.path().join("plain_project");
+        let plain_dir_path = base_dir.path().join("plain_project_for_container_test");
         fs::create_dir(&plain_dir_path).unwrap();
 
         let mut config = default_test_config();
-        config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan the base_dir
+        config.search_paths = vec![base_dir.path().to_path_buf()];
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
-
-        // Expected: main_bare_repo, wt1, wt2 (as children of main_bare_repo if list_linked_worktrees is effective), plain_project
-        // NOT Expected: worktree_holder
         
         let canonical_main_repo_dir = fs::canonicalize(&main_repo_dir).unwrap();
-        let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap();
+        // wt1 and wt2 are children of non_repo_container_dir_path, which is skipped.
+        // These worktrees are listed because main_repo_dir lists them.
+        let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap(); 
         let canonical_wt2_path = fs::canonicalize(&wt2_path).unwrap();
         let canonical_plain_dir_path = fs::canonicalize(&plain_dir_path).unwrap();
-        let canonical_container_dir_path = fs::canonicalize(&container_dir_path).unwrap();
+        let canonical_container_dir_path = fs::canonicalize(&non_repo_container_dir_path).unwrap();
 
         assert!(entries.iter().any(|e| e.resolved_path == canonical_main_repo_dir));
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt1_path)); // Found via list_linked_worktrees
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt2_path)); // Found via list_linked_worktrees
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt1_path)); 
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt2_path)); 
         assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_dir_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_dir_path), "Worktree container should be excluded. Entries: {:?}", entries);
+        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_dir_path), "Non-repo worktree container should be excluded. Entries: {:?}", entries);
         
-        // Check total count. main_repo + 2 worktrees + plain_dir = 4
-        // If main_repo_dir itself is not directly in search_paths but base_dir is,
-        // then main_repo_dir, wt1, wt2, plain_dir_path are direct children of base_dir for WalkDir.
-        // The worktrees wt1 and wt2 will be added individually when main_repo_dir is processed.
-        // The container_dir_path should be skipped.
-        // So, we expect: main_repo_dir, plain_dir_path. And wt1, wt2 as linked to main_repo_dir.
-        // The key is that `container_dir_path` is not an entry.
-        let _expected_entry_count = 3; // main_repo_dir, plain_dir_path, and main_repo_dir will list its worktrees.
-                                      // The worktrees themselves (wt1, wt2) are listed under the main repo.
-                                      // The container_dir_path is skipped.
-                                      // The main_repo_dir is one entry.
-                                      // The plain_dir_path is one entry.
-                                      // The two worktrees are associated with main_repo_dir.
-                                      // So, main_repo_dir (type GitRepository), plain_dir (type Plain),
-                                      // wt1 (type GitWorktree, parent main_repo_dir), wt2 (type GitWorktree, parent main_repo_dir)
-        assert_eq!(entries.len(), 4, "Expected 4 entries: main repo, its 2 worktrees, and plain_project. Entries: {:?}", entries);
+        // main_repo_dir, its 2 worktrees, plain_project = 4 entries
+        assert_eq!(entries.len(), 4, "Expected 4 entries. Entries: {:?}", entries);
     }
 
     #[test]
@@ -754,12 +1054,12 @@ mod tests {
         fs::create_dir(&plain_project_path).unwrap();
 
         let git_project_path = base_dir.path().join("my_git_project");
-        init_repo(&git_project_path); // Standard repo
+        init_repo(&git_project_path); 
 
         let main_bare_repo_path = base_dir.path().join("central_bare.git");
         let main_bare_repo = init_bare_repo(&main_bare_repo_path);
         
-        let worktree1_path = base_dir.path().join("worktree_one");
+        let worktree1_path = base_dir.path().join("worktree_one"); // worktree of central_bare.git
         add_worktree_to_bare(&main_bare_repo, "wt_one", &worktree1_path);
 
         let mut config = default_test_config();
@@ -767,6 +1067,7 @@ mod tests {
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
 
+        // Expected: plain_project, git_project, central_bare.git, worktree_one
         assert_eq!(entries.len(), 4, "Should find plain, git repo, bare repo, and its worktree. Entries: {:?}", entries);
 
         let canonical_plain_project_path = fs::canonicalize(&plain_project_path).unwrap();
@@ -776,8 +1077,11 @@ mod tests {
 
         assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_project_path && e.entry_type == DirectoryType::Plain));
         assert!(entries.iter().any(|e| e.resolved_path == canonical_git_project_path && e.entry_type == DirectoryType::GitRepository));
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_main_bare_repo_path && e.entry_type == DirectoryType::GitRepository));
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_worktree1_path && matches!(e.entry_type, DirectoryType::GitWorktree { .. })));
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_main_bare_repo_path && e.entry_type == DirectoryType::GitRepository)); // The bare repo itself is an entry
+        let wt1_entry = entries.iter().find(|e| e.resolved_path == canonical_worktree1_path);
+        assert!(wt1_entry.is_some());
+        assert!(matches!(wt1_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }));
+        assert_eq!(wt1_entry.unwrap().display_name, "[central_bare.git] worktree_one");
     }
 
     #[test]
