@@ -26,69 +26,69 @@
 
 ### Beginning context
 
-- `Cargo.toml`
+- `ai-docs/CONVENTIONS.md` (readonly)
+- `ai-docs/library-reference.md` (readonly)
+- `specs/0001-setup.md` (readonly)
+- `Cargo.toml` (readonly)
+- `README.md`
 - `src/main.rs`
 - `src/config.rs`
-- `src/scanner.rs`
-- `src/git.rs`
+- `src/directory_scanner.rs`
+- `src/git_repository_handler.rs`
 
 ### Ending context
 
-- `src/finder.rs` (new)
+- `src/fuzzy_finder_interface.rs` (new)
 - `src/main.rs` (updated)
-- `Cargo.toml` (updated with skim dependency)
 
 ## Low-Level Tasks
 
 > Ordered from start to finish
 
-1. Add skim dependency
+1. Create fuzzy finder module
 
 ```aider
-UPDATE Cargo.toml to add the skim dependency.
-Add skim with an appropriate version number.
+GENERATE src/fuzzy_finder_interface.rs:
+  Update fuzzy finder integration.
+  Define a FuzzyFinder struct that will handle presenting options and selection.
+  Implement methods to:
+  - Format directory entries for display
+  - Prepare the input data structure for skim
+  - Return a Selected item containing path and display name
 ```
 
-2. Create fuzzy finder module
+2. Implement fuzzy selection
 
 ```aider
-CREATE src/finder.rs module for fuzzy finder integration.
-Define a FuzzyFinder struct that will handle presenting options and selection.
-Implement methods to:
-- Format directory entries for display
-- Prepare the input data structure for skim
-- Return a Selected item containing path and display name
+UPDATE src/fuzzy_finder_interface.rs:
+  Update the fuzzy selection process.
+  Add a select() method that:
+  - Takes a Vec<DirectoryEntry>
+  - Presents them to the user via skim
+  - Captures the user's selection
+  - Returns the selected entry or None if cancelled
+  Include proper error handling and logging.
 ```
 
-3. Implement fuzzy selection
+3. Implement direct selection
 
 ```aider
-UPDATE src/finder.rs to implement the fuzzy selection process.
-Add a select() method that:
-- Takes a Vec<DirectoryEntry>
-- Presents them to the user via skim
-- Captures the user's selection
-- Returns the selected entry or None if cancelled
-Include proper error handling and logging.
+UPDATE src/fuzzy_finder_interface.rs:
+  Support direct selection.
+  Add a method to:
+  - Find a directory entry by path from command-line argument
+  - Match partial paths if needed
+  - Return the matching entry or error if not found
 ```
 
-4. Implement direct selection
+4. Integrate finder with main
 
 ```aider
-UPDATE src/finder.rs to support direct selection.
-Add a method to:
-- Find a directory entry by path from command-line argument
-- Match partial paths if needed
-- Return the matching entry or error if not found
-```
-
-5. Integrate finder with main
-
-```aider
-UPDATE src/main.rs to use the FuzzyFinder.
-Add logic to:
-- Check if a direct selection was provided in args
-- If not, use fuzzy selection
-- Handle the case where no selection is made
-- Print the final selection
+UPDATE src/main.rs:
+  Use the FuzzyFinder.
+  Add logic to:
+  - Check if a direct selection was provided in args
+  - If not, use fuzzy selection
+  - Handle the case where no selection is made
+  - Print the final selection
 ```
