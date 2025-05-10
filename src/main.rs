@@ -6,7 +6,8 @@ mod git_repository_handler;
 mod session_manager;
 
 use crate::config::Config; // Add this line
-use tracing::{Level, debug}; // Add debug to tracing imports
+use crate::directory_scanner::DirectoryScanner; // Add this line to import DirectoryScanner
+use tracing::{debug, Level}; // debug is already here, Level is used by setup_tracing
 
 // Add this function before main
 fn setup_tracing(debug_mode: bool) {
@@ -35,4 +36,28 @@ fn main() {
 
     // The original tracing::debug!("Debug mode is enabled."); can be removed
     // as the config log above will show the debug_mode status.
+
+    // Create a DirectoryScanner instance
+    let scanner = DirectoryScanner::new(&config);
+
+    // Call scan() to get the list of directory entries
+    tracing::info!("Starting directory scan via main...");
+    let scanned_entries = scanner.scan();
+    tracing::info!("Directory scan complete. Found {} entries.", scanned_entries.len());
+
+    // Print the results (for now)
+    // This will print regardless of debug_mode for now, as per "print the results (for now)"
+    if !scanned_entries.is_empty() {
+        println!("\nScanned Directory Entries:");
+        for entry in scanned_entries {
+            println!(
+                "  Display: {}, Path: {}, Resolved: {}",
+                entry.display_name,
+                entry.path.display(),
+                entry.resolved_path.display()
+            );
+        }
+    } else {
+        println!("\nNo directory entries found matching the criteria.");
+    }
 }
