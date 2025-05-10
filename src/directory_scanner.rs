@@ -353,18 +353,9 @@ impl<'a> DirectoryScanner<'a> {
                             Ok(linked_worktrees) => {
                                 debug!(repo_path = %resolved_path.display(), count = linked_worktrees.len(), "Found linked worktrees");
                                 
-                                // Determine the correct reference path for the main repository display name.
-                                // If the current repo is bare, its actual .git directory path (repo.path())
-                                // should be used for naming its worktrees. Otherwise, use the resolved_path
-                                // of the directory we are currently processing.
-                                let main_repo_ref_path_for_display = if repo.is_bare() {
-                                    // repo.path() gives the path to the .git directory of the bare repo.
-                                    // We need to canonicalize it for consistency, though it should already be absolute.
-                                    // If canonicalization fails, fall back to repo.path() itself.
-                                    fs::canonicalize(repo.path()).unwrap_or_else(|_| repo.path().to_path_buf())
-                                } else {
-                                    resolved_path.clone()
-                                };
+                                // Use the resolved_path of the directory we are currently processing (the container)
+                                // as the reference for the parent part of the worktree display name.
+                                let main_repo_ref_path_for_display = resolved_path.clone();
 
                                 for worktree_info in linked_worktrees {
                                     let wt_path_from_git = worktree_info.path;
@@ -859,13 +850,13 @@ mod tests {
         let wt1_entry = entries.iter().find(|e| e.resolved_path == canonical_wt1_path);
         assert!(wt1_entry.is_some(), "Worktree 1 should be listed. Entries: {:?}", entries);
         assert!(matches!(wt1_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 1 should be of type GitWorktree");
-        assert_eq!(wt1_entry.unwrap().display_name, format!("[{}] feature_a", bare_repo_dir_name));
+        assert_eq!(wt1_entry.unwrap().display_name, format!("[{}] feature_a", container_name));
 
 
         let wt2_entry = entries.iter().find(|e| e.resolved_path == canonical_wt2_path);
         assert!(wt2_entry.is_some(), "Worktree 2 should be listed. Entries: {:?}", entries);
         assert!(matches!(wt2_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 2 should be of type GitWorktree");
-        assert_eq!(wt2_entry.unwrap().display_name, format!("[{}] bugfix_b", bare_repo_dir_name));
+        assert_eq!(wt2_entry.unwrap().display_name, format!("[{}] bugfix_b", container_name));
 
 
         // The plain project should be an entry
