@@ -217,18 +217,33 @@ mod tests {
     fn test_get_git_dir_path_standard() {
         let dir = tempdir().unwrap();
         init_repo(dir.path());
-        let git_dir = get_git_dir_path(dir.path()).unwrap();
-        assert_eq!(git_dir, dir.path().join(".git/")); // Note: repo.path() often includes a trailing slash
+        let git_dir_from_func = get_git_dir_path(dir.path()).unwrap();
+        let expected_git_dir = dir.path().join(".git/"); // repo.path() for standard repo includes .git/
+
+        let canon_git_dir = fs::canonicalize(git_dir_from_func).unwrap();
+        let canon_expected_dir = fs::canonicalize(expected_git_dir).unwrap();
+        
+        // Normalize by removing trailing slash if present for comparison
+        let norm_canon_git_dir = PathBuf::from(canon_git_dir.to_string_lossy().trim_end_matches('/'));
+        let norm_canon_expected_dir = PathBuf::from(canon_expected_dir.to_string_lossy().trim_end_matches('/'));
+
+        assert_eq!(norm_canon_git_dir, norm_canon_expected_dir);
     }
 
     #[test]
     fn test_get_git_dir_path_bare() {
         let dir = tempdir().unwrap();
         init_bare_repo(dir.path());
-        let git_dir = get_git_dir_path(dir.path()).unwrap();
-        assert_eq!(git_dir, dir.path().join("")); // For bare repo, path is the repo itself. repo.path() might add /
-                                                 // Let's check if it's the same as the repo dir
-        assert_eq!(fs::canonicalize(git_dir).unwrap(), fs::canonicalize(dir.path()).unwrap());
+        let git_dir_from_func = get_git_dir_path(dir.path()).unwrap(); // This is repo.path()
+
+        let canon_git_dir = fs::canonicalize(git_dir_from_func).unwrap();
+        let canon_temp_dir = fs::canonicalize(dir.path()).unwrap();
+
+        // Normalize by removing trailing slash if present for comparison
+        let norm_canon_git_dir = PathBuf::from(canon_git_dir.to_string_lossy().trim_end_matches('/'));
+        let norm_canon_temp_dir = PathBuf::from(canon_temp_dir.to_string_lossy().trim_end_matches('/'));
+
+        assert_eq!(norm_canon_git_dir, norm_canon_temp_dir);
     }
 
 
@@ -289,7 +304,11 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[]).unwrap();
+        let initial_commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[]).unwrap();
+        let initial_commit = repo.find_commit(initial_commit_oid).unwrap();
+        repo.branch("main", &initial_commit, true).expect("Failed to create main branch");
+        // Set HEAD to the new main branch to ensure it's not unborn
+        repo.set_head("refs/heads/main").expect("Failed to set HEAD to main branch");
         
         let wt_dir = tempdir().unwrap();
         let wt_path = wt_dir.path(); // Path for the new worktree
@@ -297,8 +316,8 @@ mod tests {
 
         // Add worktree using git2
         let mut opts = WorktreeAddOptions::new();
-        let head_ref = repo.find_reference("HEAD").unwrap(); // Create a longer-lived binding
-        opts.reference(Some(&head_ref)); // Use the binding
+        let branch_ref = repo.find_reference("refs/heads/main").unwrap();
+        opts.reference(Some(&branch_ref)); 
         
         // Need to ensure the path for the worktree is outside the main repo's temp dir
         // or use a relative path that makes sense. tempdir() creates unique paths.
@@ -341,15 +360,18 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[]).unwrap();
+        let initial_commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[]).unwrap();
+        let initial_commit = repo.find_commit(initial_commit_oid).unwrap();
+        repo.branch("main", &initial_commit, true).expect("Failed to create main branch");
+        repo.set_head("refs/heads/main").expect("Failed to set HEAD to main branch");
 
         let wt_dir = tempdir().unwrap(); // Separate temp dir for the worktree
         let wt_path = wt_dir.path();
         let wt_name = "linked-feature";
         
         let mut opts = WorktreeAddOptions::new();
-        let head_ref = repo.find_reference("HEAD").unwrap(); // Create a longer-lived binding
-        opts.reference(Some(&head_ref)); // Use the binding
+        let branch_ref = repo.find_reference("refs/heads/main").unwrap();
+        opts.reference(Some(&branch_ref));
         repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
 
         let main_path_from_worktree = get_main_repository_path(wt_path).unwrap();
