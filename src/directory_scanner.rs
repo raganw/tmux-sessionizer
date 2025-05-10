@@ -290,7 +290,10 @@ impl<'a> DirectoryScanner<'a> {
                 .into_iter()
                 .filter_map(|e| {
                     if let Err(ref err_val) = e {
-                        warn!(path = ?err_val.path(), error = %err_val.io_error().map(|ioe| ioe.to_string()), "Error walking directory child");
+                        let io_error_string = err_val
+                            .io_error()
+                            .map_or_else(|| "N/A".to_string(), |ioe| ioe.to_string());
+                        warn!(path = ?err_val.path(), error = %io_error_string, "Error walking directory child");
                     }
                     e.ok()
                 })
