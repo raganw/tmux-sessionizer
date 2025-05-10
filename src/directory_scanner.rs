@@ -4,6 +4,7 @@ use crate::git_repository_handler::{
 };
 use git2::Repository; // For repo.is_worktree()
 use std::collections::HashSet; // Add this for HashSet
+use std::ffi::OsStr; // For comparing OsStr with ".git"
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn, span, Level}; // Add tracing imports
