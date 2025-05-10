@@ -467,3 +467,363 @@ impl<'a> DirectoryScanner<'a> {
         entries
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use git2::{Repository, WorktreeAddOptions};
+    use regex::Regex;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    // Helper to initialize a standard git repo
+    fn init_repo(path: &Path) -> Repository {
+        Repository::init(path).expect("Failed to init repo")
+    }
+
+    // Helper to initialize a bare git repo
+    fn init_bare_repo(path: &Path) -> Repository {
+        Repository::init_bare(path).expect("Failed to init bare repo")
+    }
+
+    // Helper to add a worktree to a bare repository
+    fn add_worktree_to_bare(
+        bare_repo: &Repository,
+        worktree_name: &str,
+        worktree_path: &Path,
+    ) -> Repository {
+        // For a bare repo, worktrees are added relative to its path, but the actual worktree dir can be elsewhere.
+        // We need to ensure the worktree_path exists.
+        fs::create_dir_all(worktree_path).expect("Failed to create worktree_path directory");
+        let mut opts = WorktreeAddOptions::new();
+        bare_repo
+            .worktree(worktree_name, worktree_path, Some(&mut opts))
+            .expect("Failed to add worktree");
+        Repository::open(worktree_path).expect("Failed to open added worktree")
+    }
+    
+    // Helper to create a default config for tests
+    fn default_test_config() -> Config {
+        Config {
+            search_paths: vec![],
+            additional_paths: vec![],
+            exclude_patterns: vec![],
+            debug_mode: false, // or true for more test output
+            direct_selection: None,
+            // Initialize other fields if they become non-optional or affect tests
+        }
+    }
+
+    #[test]
+    fn test_check_if_worktree_container_valid_two_worktrees() {
+        let main_repo_dir = tempdir().unwrap();
+        let _main_repo = init_bare_repo(main_repo_dir.path());
+
+        let container_dir = tempdir().unwrap();
+        let wt1_path = container_dir.path().join("wt1");
+        let wt2_path = container_dir.path().join("wt2");
+        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        add_worktree_to_bare(&_main_repo, "wt2", &wt2_path);
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    fn test_check_if_worktree_container_one_worktree() {
+        let main_repo_dir = tempdir().unwrap();
+        let _main_repo = init_bare_repo(main_repo_dir.path());
+
+        let container_dir = tempdir().unwrap();
+        let wt1_path = container_dir.path().join("wt1");
+        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    fn test_check_if_worktree_container_empty_dir() {
+        let container_dir = tempdir().unwrap();
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    fn test_check_if_worktree_container_with_file() {
+        let main_repo_dir = tempdir().unwrap();
+        let _main_repo = init_bare_repo(main_repo_dir.path());
+
+        let container_dir = tempdir().unwrap();
+        let wt1_path = container_dir.path().join("wt1");
+        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        File::create(container_dir.path().join("some_file.txt")).unwrap();
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    fn test_check_if_worktree_container_with_plain_dir() {
+        let main_repo_dir = tempdir().unwrap();
+        let _main_repo = init_bare_repo(main_repo_dir.path());
+
+        let container_dir = tempdir().unwrap();
+        let wt1_path = container_dir.path().join("wt1");
+        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        fs::create_dir(container_dir.path().join("plain_dir")).unwrap();
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    fn test_check_if_worktree_container_with_non_worktree_repo() {
+        let main_repo_dir = tempdir().unwrap();
+        let _main_repo = init_bare_repo(main_repo_dir.path());
+
+        let container_dir = tempdir().unwrap();
+        let wt1_path = container_dir.path().join("wt1");
+        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        init_repo(&container_dir.path().join("other_repo")); // Standard repo, not a worktree
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    fn test_check_if_worktree_container_different_main_repos() {
+        let main_repo_a_dir = tempdir().unwrap();
+        let _main_repo_a = init_bare_repo(main_repo_a_dir.path());
+        let main_repo_b_dir = tempdir().unwrap();
+        let _main_repo_b = init_bare_repo(main_repo_b_dir.path());
+
+        let container_dir = tempdir().unwrap();
+        let wt_a_path = container_dir.path().join("wt_a");
+        let wt_b_path = container_dir.path().join("wt_b");
+        add_worktree_to_bare(&_main_repo_a, "wt_a", &wt_a_path);
+        add_worktree_to_bare(&_main_repo_b, "wt_b", &wt_b_path);
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    #[cfg(unix)] // Symlinks are tricky on Windows and might require admin rights
+    fn test_check_if_worktree_container_with_symlink_to_worktree() {
+        let main_repo_dir = tempdir().unwrap();
+        let _main_repo = init_bare_repo(main_repo_dir.path());
+
+        let actual_wt_dir = tempdir().unwrap(); // Actual worktree location
+        add_worktree_to_bare(&_main_repo, "actual_wt1", actual_wt_dir.path());
+        
+        let container_dir = tempdir().unwrap();
+        let symlink_path = container_dir.path().join("sym_wt1");
+        std::os::unix::fs::symlink(actual_wt_dir.path(), symlink_path).unwrap();
+
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_check_if_worktree_container_with_symlink_to_file() {
+        let main_repo_dir = tempdir().unwrap();
+        let _main_repo = init_bare_repo(main_repo_dir.path());
+
+        let container_dir = tempdir().unwrap();
+        let wt1_path = container_dir.path().join("wt1");
+        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+
+        let file_path = tempdir().unwrap().path().join("target_file.txt");
+        File::create(&file_path).unwrap();
+        let symlink_path = container_dir.path().join("sym_to_file");
+        std::os::unix::fs::symlink(&file_path, symlink_path).unwrap();
+        
+        let config = default_test_config();
+        let scanner = DirectoryScanner::new(&config);
+        assert!(!scanner.check_if_worktree_container(container_dir.path()));
+    }
+
+    #[test]
+    fn test_scan_excludes_worktree_container() {
+        let base_dir = tempdir().unwrap();
+        let main_repo_dir = base_dir.path().join("main_bare_repo");
+        fs::create_dir(&main_repo_dir).unwrap();
+        let _main_repo = init_bare_repo(&main_repo_dir);
+
+        let container_dir_path = base_dir.path().join("worktree_holder");
+        fs::create_dir(&container_dir_path).unwrap();
+        
+        let wt1_path = container_dir_path.join("wt1");
+        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        let wt2_path = container_dir_path.join("wt2");
+        add_worktree_to_bare(&_main_repo, "wt2", &wt2_path);
+
+        // Also add a plain directory to be found
+        let plain_dir_path = base_dir.path().join("plain_project");
+        fs::create_dir(&plain_dir_path).unwrap();
+
+        let mut config = default_test_config();
+        config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan the base_dir
+
+        let scanner = DirectoryScanner::new(&config);
+        let entries = scanner.scan();
+
+        // Expected: main_bare_repo, wt1, wt2 (as children of main_bare_repo if list_linked_worktrees is effective), plain_project
+        // NOT Expected: worktree_holder
+        
+        assert!(entries.iter().any(|e| e.resolved_path == main_repo_dir));
+        assert!(entries.iter().any(|e| e.resolved_path == wt1_path)); // Found via list_linked_worktrees
+        assert!(entries.iter().any(|e| e.resolved_path == wt2_path)); // Found via list_linked_worktrees
+        assert!(entries.iter().any(|e| e.resolved_path == plain_dir_path));
+        assert!(!entries.iter().any(|e| e.resolved_path == container_dir_path), "Worktree container should be excluded");
+        
+        // Check total count. main_repo + 2 worktrees + plain_dir = 4
+        // If main_repo_dir itself is not directly in search_paths but base_dir is,
+        // then main_repo_dir, wt1, wt2, plain_dir_path are direct children of base_dir for WalkDir.
+        // The worktrees wt1 and wt2 will be added individually when main_repo_dir is processed.
+        // The container_dir_path should be skipped.
+        // So, we expect: main_repo_dir, plain_dir_path. And wt1, wt2 as linked to main_repo_dir.
+        // The key is that `container_dir_path` is not an entry.
+        let expected_entry_count = 3; // main_repo_dir, plain_dir_path, and main_repo_dir will list its worktrees.
+                                      // The worktrees themselves (wt1, wt2) are listed under the main repo.
+                                      // The container_dir_path is skipped.
+                                      // The main_repo_dir is one entry.
+                                      // The plain_dir_path is one entry.
+                                      // The two worktrees are associated with main_repo_dir.
+                                      // So, main_repo_dir (type GitRepository), plain_dir (type Plain),
+                                      // wt1 (type GitWorktree, parent main_repo_dir), wt2 (type GitWorktree, parent main_repo_dir)
+        assert_eq!(entries.len(), 4, "Expected 4 entries: main repo, its 2 worktrees, and plain_project. Entries: {:?}", entries);
+    }
+
+    #[test]
+    fn test_scan_finds_various_types() {
+        let base_dir = tempdir().unwrap();
+
+        let plain_project_path = base_dir.path().join("my_plain_project");
+        fs::create_dir(&plain_project_path).unwrap();
+
+        let git_project_path = base_dir.path().join("my_git_project");
+        init_repo(&git_project_path); // Standard repo
+
+        let main_bare_repo_path = base_dir.path().join("central_bare.git");
+        let main_bare_repo = init_bare_repo(&main_bare_repo_path);
+        
+        let worktree1_path = base_dir.path().join("worktree_one");
+        add_worktree_to_bare(&main_bare_repo, "wt_one", &worktree1_path);
+
+        let mut config = default_test_config();
+        config.search_paths = vec![base_dir.path().to_path_buf()];
+        let scanner = DirectoryScanner::new(&config);
+        let entries = scanner.scan();
+
+        assert_eq!(entries.len(), 4, "Should find plain, git repo, bare repo, and its worktree. Entries: {:?}", entries);
+
+        assert!(entries.iter().any(|e| e.resolved_path == plain_project_path && e.entry_type == DirectoryType::Plain));
+        assert!(entries.iter().any(|e| e.resolved_path == git_project_path && e.entry_type == DirectoryType::GitRepository));
+        assert!(entries.iter().any(|e| e.resolved_path == main_bare_repo_path && e.entry_type == DirectoryType::GitRepository));
+        assert!(entries.iter().any(|e| e.resolved_path == worktree1_path && matches!(e.entry_type, DirectoryType::GitWorktree { .. })));
+    }
+
+    #[test]
+    fn test_scan_with_tilde_expansion_and_additional_paths() {
+        // This test is a bit conceptual for tilde as it depends on `dirs::home_dir()`
+        // We'll simulate a structure that would be found if tilde expansion worked.
+        let home_sim_dir = tempdir().unwrap();
+        let dev_dir_in_home = home_sim_dir.path().join("Development");
+        fs::create_dir_all(&dev_dir_in_home).unwrap();
+        let project_in_dev_path = dev_dir_in_home.join("my_dev_project");
+        fs::create_dir(&project_in_dev_path).unwrap();
+
+        let other_loc_dir = tempdir().unwrap();
+        let additional_project_path = other_loc_dir.path().join("additional_proj");
+        fs::create_dir(&additional_project_path).unwrap();
+        
+        // Mock `expand_tilde` for this test by using paths that don't need it,
+        // or ensure the test environment has a home dir.
+        // For simplicity, we'll use absolute paths in config for this test,
+        // assuming `expand_tilde` is tested elsewhere or works.
+        // Or, we can test `expand_tilde` separately.
+        // Here, we'll construct search_paths that mimic post-tilde-expansion.
+        
+        let mut config = default_test_config();
+        // If we could mock dirs::home_dir(), we'd use "~/Development"
+        // Instead, use the actual path for testing the rest of scan logic
+        config.search_paths = vec![dev_dir_in_home.clone()]; 
+        config.additional_paths = vec![additional_project_path.clone()];
+
+        let scanner = DirectoryScanner::new(&config);
+        let entries = scanner.scan();
+        
+        assert_eq!(entries.len(), 2, "Entries: {:?}", entries);
+        assert!(entries.iter().any(|e| e.resolved_path == project_in_dev_path));
+        assert!(entries.iter().any(|e| e.resolved_path == additional_project_path));
+    }
+
+    #[test]
+    fn test_scan_exclusion_patterns() {
+        let base_dir = tempdir().unwrap();
+        let project_a_path = base_dir.path().join("project_a");
+        fs::create_dir(&project_a_path).unwrap();
+        let project_b_path = base_dir.path().join("project_b_exclude");
+        fs::create_dir(&project_b_path).unwrap();
+
+        let mut config = default_test_config();
+        config.search_paths = vec![base_dir.path().to_path_buf()];
+        config.exclude_patterns = vec![Regex::new("_exclude$").unwrap()];
+
+        let scanner = DirectoryScanner::new(&config);
+        let entries = scanner.scan();
+
+        assert_eq!(entries.len(), 1);
+        assert!(entries.iter().any(|e| e.resolved_path == project_a_path));
+        assert!(!entries.iter().any(|e| e.resolved_path == project_b_path));
+    }
+
+     #[test]
+    fn test_scan_hidden_directory_exclusion_in_walkdir() {
+        let base_dir = tempdir().unwrap();
+        let visible_project_path = base_dir.path().join("visible_project");
+        fs::create_dir(&visible_project_path).unwrap();
+        let hidden_project_path = base_dir.path().join(".hidden_project");
+        fs::create_dir(&hidden_project_path).unwrap();
+
+        let mut config = default_test_config();
+        config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan base_dir children
+
+        let scanner = DirectoryScanner::new(&config);
+        let entries = scanner.scan();
+        
+        assert_eq!(entries.len(), 1, "Only visible_project should be found. Entries: {:?}", entries);
+        assert!(entries.iter().any(|e| e.resolved_path == visible_project_path));
+        assert!(!entries.iter().any(|e| e.resolved_path == hidden_project_path));
+    }
+
+    #[test]
+    fn test_scan_includes_explicitly_added_hidden_directory() {
+        // e.g. if "~/.config" is an additional_path
+        let base_dir = tempdir().unwrap();
+        let hidden_config_path = base_dir.path().join(".myconfig");
+        fs::create_dir(&hidden_config_path).unwrap();
+
+        let mut config = default_test_config();
+        config.additional_paths = vec![hidden_config_path.clone()]; // Explicitly add .myconfig
+
+        let scanner = DirectoryScanner::new(&config);
+        let entries = scanner.scan();
+        
+        assert_eq!(entries.len(), 1, "Explicitly added hidden dir should be found. Entries: {:?}", entries);
+        assert!(entries.iter().any(|e| e.resolved_path == hidden_config_path));
+    }
+}
