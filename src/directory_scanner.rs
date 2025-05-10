@@ -14,6 +14,7 @@ pub enum DirectoryType {
     Plain,
     GitRepository,
     GitWorktree { main_worktree_path: PathBuf }, // Path to the main .git dir or main worktree's root
+    #[allow(dead_code)] // This variant is used conceptually for exclusion, not direct construction of entries.
     GitWorktreeContainer, // A directory that primarily contains worktrees of a single main repo
 }
 
@@ -517,7 +518,6 @@ mod tests {
 
         // For a bare repo, worktrees are added relative to its path, but the actual worktree dir can be elsewhere.
         // We need to ensure the worktree_path exists.
-        fs::create_dir_all(worktree_path).expect("Failed to create worktree_path directory");
         let mut opts = WorktreeAddOptions::new();
         bare_repo
             .worktree(worktree_name, worktree_path, Some(&mut opts))
