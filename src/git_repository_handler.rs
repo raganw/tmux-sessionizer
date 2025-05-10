@@ -314,28 +314,27 @@ mod tests {
         repo.branch(worktree_branch_name, &commit, false) // false = no force
             .expect("Failed to create branch for worktree");
 
-        let wt_dir = tempdir().unwrap();
-        let wt_path = wt_dir.path();
-        let wt_name = "feature-branch"; // This is the worktree's directory/metadata name
+        // Use a subdirectory within a tempdir for the worktree path
+        let base_wt_temp_dir = tempdir().unwrap(); 
+        let wt_path = base_wt_temp_dir.path().join("my_worktree_dir"); // Path for the new worktree, does not exist yet
+        let wt_name = "feature-branch"; 
 
         let mut opts = WorktreeAddOptions::new();
-        // Set the reference for the worktree to be the new branch we created
         let worktree_specific_ref = repo.find_reference(&format!("refs/heads/{}", worktree_branch_name)).unwrap();
         opts.reference(Some(&worktree_specific_ref)); 
         
-        let _git2_worktree = repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
+        // git2 will create wt_path
+        let _git2_worktree = repo.worktree(wt_name, &wt_path, Some(&opts)).unwrap(); 
         
         let worktrees = list_linked_worktrees(main_repo_dir.path()).unwrap();
         assert_eq!(worktrees.len(), 1);
         assert_eq!(worktrees[0].name, wt_name);
-        // git2::Worktree::path() returns canonicalized path, so we should compare canonicalized
-        assert_eq!(fs::canonicalize(&worktrees[0].path).unwrap(), fs::canonicalize(wt_path).unwrap());
+        assert_eq!(fs::canonicalize(&worktrees[0].path).unwrap(), fs::canonicalize(&wt_path).unwrap());
 
-        // Test listing from the worktree itself
-        let worktrees_from_wt = list_linked_worktrees(wt_path).unwrap();
-         assert_eq!(worktrees_from_wt.len(), 1, "Should list one linked worktree when called from worktree path");
-         assert_eq!(worktrees_from_wt[0].name, wt_name);
-         assert_eq!(fs::canonicalize(&worktrees_from_wt[0].path).unwrap(), fs::canonicalize(wt_path).unwrap());
+        let worktrees_from_wt = list_linked_worktrees(&wt_path).unwrap();
+        assert_eq!(worktrees_from_wt.len(), 1);
+        assert_eq!(worktrees_from_wt[0].name, wt_name);
+        assert_eq!(fs::canonicalize(&worktrees_from_wt[0].path).unwrap(), fs::canonicalize(&wt_path).unwrap());
     }
 
     #[test]
@@ -370,16 +369,17 @@ mod tests {
         repo.branch(worktree_branch_name, &commit, false)
             .expect("Failed to create branch for worktree");
 
-        let wt_dir = tempdir().unwrap(); 
-        let wt_path = wt_dir.path();
-        let wt_name = "linked-feature"; // Worktree's directory/metadata name
+        let base_wt_temp_dir = tempdir().unwrap();
+        let wt_path = base_wt_temp_dir.path().join("another_worktree_dir"); // Path for the new worktree
+        let wt_name = "linked-feature";
         
         let mut opts = WorktreeAddOptions::new();
         let worktree_specific_ref = repo.find_reference(&format!("refs/heads/{}", worktree_branch_name)).unwrap();
         opts.reference(Some(&worktree_specific_ref));
-        repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
+        // git2 will create wt_path
+        repo.worktree(wt_name, &wt_path, Some(&opts)).unwrap();
 
-        let main_path_from_worktree = get_main_repository_path(wt_path).unwrap();
+        let main_path_from_worktree = get_main_repository_path(&wt_path).unwrap();
         assert_eq!(main_path_from_worktree, fs::canonicalize(main_repo_dir.path()).unwrap(), 
             "Main repo path from worktree should be the original main repo's path");
     }
