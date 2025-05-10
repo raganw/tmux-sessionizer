@@ -218,11 +218,27 @@ impl<'a> DirectoryScanner<'a> {
                 }
                 Err(e) => {
                     warn!(path = %resolved_path.display(), error = %e, "Failed to open path as Git repository despite initial check, treating as plain");
+                    // Before adding as plain, check if it's a worktree container
+                    if self.check_if_worktree_container(&resolved_path) {
+                        debug!(path = %resolved_path.display(), "Identified as a Git worktree container (after failing to open as repo), skipping");
+                        return;
+                    }
                     self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
                 }
             }
-        } else { // Not a Git repository
-            self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
+        } else { // Not a Git repository (is_git_repository(&resolved_path) returned false)
+            // Check if it's a GitWorktreeContainer before treating as plain
+            if self.check_if_worktree_container(&resolved_path) {
+                debug!(path = %resolved_path.display(), "Identified as a Git worktree container, skipping");
+                // Do not add to entries, effectively excluding it.
+                // We also don't add to processed_resolved_paths here, as it's not an "entry".
+                // If this path were encountered again via a different original_path (e.g. another symlink),
+                // it would be re-evaluated, which is fine.
+                return;
+            } else {
+                // If not a container, then it's a plain directory
+                self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
+            }
         }
     }
     
@@ -251,6 +267,128 @@ impl<'a> DirectoryScanner<'a> {
         };
         entries.push(dir_entry);
         processed_resolved_paths.insert(resolved_path);
+    }
+
+    /// Checks if the given path is a "worktree container".
+    /// A directory is considered a worktree container if all of its direct children are
+    /// directories, each of those is a Git worktree, and all those worktrees belong
+    /// to the same main repository. It must also contain at least one such worktree
+    /// and no other files or non-qualifying directories at its top level.
+    ///
+    /// Returns `true` if it's a worktree container, `false` otherwise.
+    fn check_if_worktree_container(&self, path_to_check: &Path) -> bool {
+        let container_check_span = span!(Level::DEBUG, "check_if_worktree_container", path = %path_to_check.display());
+        let _enter = container_check_span.enter();
+
+        let mut worktree_children_count = 0;
+        let mut first_main_repo_path: Option<PathBuf> = None;
+        let mut all_children_are_qualifying_worktrees = true;
+
+        match fs::read_dir(path_to_check) {
+            Ok(entries) => {
+                for entry_result in entries {
+                    match entry_result {
+                        Ok(entry) => {
+                            let child_path = entry.path();
+                            let child_file_type = match entry.file_type() {
+                                Ok(ft) => ft,
+                                Err(e) => {
+                                    warn!(child = %child_path.display(), error = %e, "Could not get file type for child, assuming not a qualifying worktree container child.");
+                                    all_children_are_qualifying_worktrees = false;
+                                    break;
+                                }
+                            };
+
+                            // If it's a file (not a directory or symlink to dir), then not a container.
+                            // Symlinks to files will also fail canonical_child_path.is_dir() check later.
+                            if child_file_type.is_file() {
+                                debug!(child = %child_path.display(), "Child is a file, parent not a worktree container.");
+                                all_children_are_qualifying_worktrees = false;
+                                break;
+                            }
+
+                            // If it's a directory or symlink (which WalkDir would follow, but read_dir doesn't by default)
+                            // We need to check if it resolves to a directory and is a worktree.
+                            if child_file_type.is_dir() || child_file_type.is_symlink() {
+                                match fs::canonicalize(&child_path) {
+                                    Ok(canonical_child_path) => {
+                                        if !canonical_child_path.is_dir() {
+                                            // Symlink pointed to a file or non-existent, or other issue.
+                                            debug!(child = %child_path.display(), resolved = %canonical_child_path.display(), "Child resolved to non-directory, parent not a worktree container.");
+                                            all_children_are_qualifying_worktrees = false;
+                                            break;
+                                        }
+
+                                        // It's a directory, proceed to check if it's a worktree
+                                        match Repository::open(&canonical_child_path) {
+                                            Ok(repo) => {
+                                                if repo.is_worktree() {
+                                                    match git_repository_handler::get_main_repository_path(&canonical_child_path) {
+                                                        Ok(main_repo_path) => {
+                                                            if first_main_repo_path.is_none() {
+                                                                first_main_repo_path = Some(main_repo_path.clone());
+                                                                debug!(child_worktree = %canonical_child_path.display(), main_repo = %main_repo_path.display(), "First worktree found, setting common main repo path.");
+                                                            } else if first_main_repo_path != Some(main_repo_path.clone()) {
+                                                                debug!(child_worktree = %canonical_child_path.display(), main_repo = %main_repo_path.display(), expected_main_repo = ?first_main_repo_path, "Worktree belongs to a different main repo, parent not a container.");
+                                                                all_children_are_qualifying_worktrees = false;
+                                                                break;
+                                                            }
+                                                            // If main repo paths match, increment count
+                                                            worktree_children_count += 1;
+                                                        }
+                                                        Err(e) => { // Failed to get main repo path
+                                                            warn!(child_worktree = %canonical_child_path.display(), error = %e, "Failed to get main repository path for worktree child.");
+                                                            all_children_are_qualifying_worktrees = false;
+                                                            break;
+                                                        }
+                                                    }
+                                                } else { // Child is a Git repo, but not a worktree
+                                                    debug!(child = %canonical_child_path.display(), "Child is a Git repository but not a worktree, parent not a container.");
+                                                    all_children_are_qualifying_worktrees = false;
+                                                    break;
+                                                }
+                                            }
+                                            Err(_) => { // Child is not a Git repository at all
+                                                debug!(child = %canonical_child_path.display(), "Child is not a Git repository, parent not a worktree container.");
+                                                all_children_are_qualifying_worktrees = false;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    Err(e) => { // Failed to canonicalize child path
+                                        warn!(child = %child_path.display(), error = %e, "Could not canonicalize child path.");
+                                        all_children_are_qualifying_worktrees = false;
+                                        break;
+                                    }
+                                }
+                            } else {
+                                // Neither file, dir, nor symlink. Should not happen with fs::read_dir normally.
+                                debug!(child = %child_path.display(), "Child is of unknown type, parent not a worktree container.");
+                                all_children_are_qualifying_worktrees = false;
+                                break;
+                            }
+                        }
+                        Err(e) => { // Error reading a specific directory entry
+                            warn!(path = %path_to_check.display(), error = %e, "Error iterating directory entry.");
+                            all_children_are_qualifying_worktrees = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => { // Error reading the parent directory itself
+                warn!(path = %path_to_check.display(), error = %e, "Could not read directory to check for worktree container status.");
+                return false; // Cannot determine, so assume not a container
+            }
+        }
+
+        let is_container = all_children_are_qualifying_worktrees && worktree_children_count > 0 && first_main_repo_path.is_some();
+        if is_container {
+            debug!(path = %path_to_check.display(), common_main_repo = ?first_main_repo_path, worktree_count = worktree_children_count, "Path IS a worktree container.");
+        } else {
+            debug!(path = %path_to_check.display(), all_children_ok = all_children_are_qualifying_worktrees, worktree_count = worktree_children_count, main_repo_found = first_main_repo_path.is_some(), "Path is NOT a worktree container.");
+        }
+        is_container
     }
 
     // scan function remains the same as it calls process_path_candidate
