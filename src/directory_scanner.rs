@@ -90,7 +90,8 @@ impl<'a> DirectoryScanner<'a> {
 
     fn process_path_candidate(
         &self,
-        original_path: PathBuf, // Path as found by WalkDir
+        original_path: PathBuf, // Path as found by WalkDir or from additional_paths
+        is_explicitly_added: bool, // New flag
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
     ) {
@@ -147,8 +148,12 @@ impl<'a> DirectoryScanner<'a> {
                 |os_str| os_str.to_string_lossy().into_owned(),
             );
 
-        if basename_of_resolved_path.starts_with('.') && basename_of_resolved_path.len() > 1 && basename_of_resolved_path != ".git" {
-            debug!(name = %basename_of_resolved_path, path = %resolved_path.display(), "Skipping hidden directory");
+        let is_hidden_by_name = basename_of_resolved_path.starts_with('.') &&
+                                basename_of_resolved_path.len() > 1 &&
+                                basename_of_resolved_path != ".git";
+
+        if is_hidden_by_name && !is_explicitly_added {
+            debug!(name = %basename_of_resolved_path, path = %resolved_path.display(), "Skipping hidden directory (not explicitly added)");
             return;
         }
 
@@ -442,7 +447,7 @@ impl<'a> DirectoryScanner<'a> {
                 // A more optimized way would be to use entry_result.path() as potentially pre-resolved.
                 // However, fs::canonicalize is robust.
                 let path_from_walkdir = entry_result.path().to_path_buf();
-                self.process_path_candidate(path_from_walkdir, &mut entries, &mut processed_resolved_paths);
+                self.process_path_candidate(path_from_walkdir, false, &mut entries, &mut processed_resolved_paths); // Set is_explicitly_added to false
             }
         }
 
@@ -459,7 +464,7 @@ impl<'a> DirectoryScanner<'a> {
                 }
             };
             debug!(expanded_path = %original_path.display(), "Expanded additional path");
-            self.process_path_candidate(original_path, &mut entries, &mut processed_resolved_paths);
+            self.process_path_candidate(original_path, true, &mut entries, &mut processed_resolved_paths); // Set is_explicitly_added to true
         }
 
         info!(count = entries.len(), "Directory scan complete");
@@ -472,10 +477,10 @@ impl<'a> DirectoryScanner<'a> {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use git2::{Repository, WorktreeAddOptions};
+    use git2::{Repository, WorktreeAddOptions, Signature}; // Added Signature
     use regex::Regex;
     use std::fs::{self, File};
-    use std::io::Write;
+    // Removed: use std::io::Write;
     use tempfile::tempdir;
 
     // Helper to initialize a standard git repo
@@ -494,6 +499,22 @@ mod tests {
         worktree_name: &str,
         worktree_path: &Path,
     ) -> Repository {
+        // Create an initial commit if the repo is empty, which is necessary for worktree creation.
+        if bare_repo.is_empty().unwrap_or(true) {
+            let mut index = bare_repo.index().expect("Failed to get index for bare repo");
+            let tree_id = index.write_tree().expect("Failed to write empty tree");
+            let tree = bare_repo.find_tree(tree_id).expect("Failed to find tree");
+            let sig = Signature::now("Test User", "test@example.com").expect("Failed to create signature");
+            bare_repo.commit(
+                Some("HEAD"),      // Update HEAD
+                &sig,              // Author
+                &sig,              // Committer
+                "Initial commit",  // Commit message
+                &tree,             // Tree
+                &[],               // No parent commits
+            ).expect("Failed to create initial commit in bare repo");
+        }
+
         // For a bare repo, worktrees are added relative to its path, but the actual worktree dir can be elsewhere.
         // We need to ensure the worktree_path exists.
         fs::create_dir_all(worktree_path).expect("Failed to create worktree_path directory");
@@ -696,7 +717,7 @@ mod tests {
         // The container_dir_path should be skipped.
         // So, we expect: main_repo_dir, plain_dir_path. And wt1, wt2 as linked to main_repo_dir.
         // The key is that `container_dir_path` is not an entry.
-        let expected_entry_count = 3; // main_repo_dir, plain_dir_path, and main_repo_dir will list its worktrees.
+        let _expected_entry_count = 3; // main_repo_dir, plain_dir_path, and main_repo_dir will list its worktrees.
                                       // The worktrees themselves (wt1, wt2) are listed under the main repo.
                                       // The container_dir_path is skipped.
                                       // The main_repo_dir is one entry.
