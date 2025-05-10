@@ -57,27 +57,26 @@ impl<'a> DirectoryScanner<'a> {
     // Add a helper to add worktree entries to avoid repetition
     fn add_worktree_entry(
         &self,
-        wt_path: PathBuf, // This should be the resolved path of the worktree
+        original_wt_path: PathBuf, // The path as found by WalkDir or from git config
+        resolved_wt_path: PathBuf, // The canonicalized path of the worktree
         main_repo_resolved_path: &Path,
-        worktree_name_opt: Option<String>, // Optional: name from git worktree list
+        _worktree_name_opt: Option<String>, // Name from git worktree list, currently not used for display name per spec
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
     ) {
-        if processed_resolved_paths.contains(&wt_path) {
-            debug!(path = %wt_path.display(), "Worktree path already processed, skipping");
+        if processed_resolved_paths.contains(&resolved_wt_path) {
+            debug!(path = %resolved_wt_path.display(), "Worktree path already processed, skipping");
             return;
         }
 
-        // The display name for a worktree will be handled more specifically in task 5.
-        // For now, use its directory name or the provided worktree name.
-        let display_name = worktree_name_opt.unwrap_or_else(|| {
-            wt_path.file_name().unwrap_or_default().to_string_lossy().into_owned()
-        });
+        let worktree_basename = resolved_wt_path.file_name().unwrap_or_default().to_string_lossy();
+        let parent_basename = main_repo_resolved_path.file_name().unwrap_or_default().to_string_lossy();
+        let display_name = format!("[{}] {}", parent_basename, worktree_basename);
 
-        debug!(path = %wt_path.display(), main_repo = %main_repo_resolved_path.display(), name = %display_name, "Adding Git worktree entry");
+        debug!(path = %resolved_wt_path.display(), main_repo = %main_repo_resolved_path.display(), name = %display_name, "Adding Git worktree entry");
         let worktree_entry = DirectoryEntry {
-            path: wt_path.clone(), // Original path is same as resolved for these directly identified worktrees
-            resolved_path: wt_path.clone(),
+            path: original_wt_path, // Use the original path
+            resolved_path: resolved_wt_path.clone(),
             display_name,
             entry_type: DirectoryType::GitWorktree {
                 main_worktree_path: main_repo_resolved_path.to_path_buf(),
@@ -85,31 +84,46 @@ impl<'a> DirectoryScanner<'a> {
             parent_path: Some(main_repo_resolved_path.to_path_buf()),
         };
         entries.push(worktree_entry);
-        processed_resolved_paths.insert(wt_path);
+        processed_resolved_paths.insert(resolved_wt_path);
     }
 
 
     fn process_path_candidate(
         &self,
-        original_path: PathBuf,
+        original_path: PathBuf, // Path as found by WalkDir
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
     ) {
         let candidate_span = span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
         let _enter = candidate_span.enter();
 
-        if !original_path.is_dir() {
-            debug!(path = %original_path.display(), "Skipping non-directory");
-            return;
-        }
+        // if !original_path.is_dir() { // Check on original_path before canonicalization for symlinks to files
+            // If original_path is a symlink, is_dir() checks the target.
+            // This check is more about whether the entry from WalkDir itself is a directory.
+            // However, WalkDir should only yield directories if configured, or we filter by entry.file_type().is_dir()
+            // fs::canonicalize below will fail for symlinks to non-existent targets or non-directories.
+            // For now, let's rely on canonicalize error handling and the is_dir check on resolved_path if needed.
+            // The existing check `if !original_path.is_dir()` might be problematic if original_path is a symlink
+            // and follow_links is false for WalkDir (but it's true).
+            // Let's assume WalkDir gives us something that is, or points to, a directory.
+            // Canonicalization will give the real path.
+        // }
 
         let resolved_path = match fs::canonicalize(&original_path) {
             Ok(p) => p,
             Err(e) => {
-                warn!(path = %original_path.display(), error = %e, "Could not canonicalize path, skipping");
+                warn!(original_path = %original_path.display(), error = %e, "Could not canonicalize path, skipping");
                 return;
             }
         };
+
+        // After canonicalization, check if it's actually a directory.
+        // This handles cases where original_path might be a symlink to a file.
+        if !resolved_path.is_dir() {
+            debug!(original_path = %original_path.display(), resolved_path = %resolved_path.display(), "Skipping as resolved path is not a directory");
+            return;
+        }
+        
         debug!(original = %original_path.display(), resolved = %resolved_path.display(), "Path resolved");
 
         if processed_resolved_paths.contains(&resolved_path) {
@@ -118,79 +132,80 @@ impl<'a> DirectoryScanner<'a> {
         }
 
         for pattern in &self.config.exclude_patterns {
-            if pattern.is_match(original_path.to_string_lossy().as_ref())
-                || pattern.is_match(resolved_path.to_string_lossy().as_ref()) {
+            if pattern.is_match(original_path.to_string_lossy().as_ref()) // Check original path against exclusions
+                || pattern.is_match(resolved_path.to_string_lossy().as_ref()) { // Check resolved path
                 debug!(path = %resolved_path.display(), pattern = %pattern, "Skipping excluded path");
                 return;
             }
         }
         
-        let display_name_candidate = resolved_path
+        let basename_of_resolved_path = resolved_path
             .file_name()
             .map_or_else(
+                // Fallback to original_path's basename if resolved_path has no filename (e.g. "/")
                 || original_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
                 |os_str| os_str.to_string_lossy().into_owned(),
             );
 
-        if display_name_candidate.starts_with('.') && display_name_candidate.len() > 1 && display_name_candidate != ".git" {
-             // Allow .git as it might be a bare repo name, but generally skip hidden dirs.
-            debug!(name = %display_name_candidate, path = %resolved_path.display(), "Skipping hidden directory");
+        if basename_of_resolved_path.starts_with('.') && basename_of_resolved_path.len() > 1 && basename_of_resolved_path != ".git" {
+            debug!(name = %basename_of_resolved_path, path = %resolved_path.display(), "Skipping hidden directory");
             return;
         }
 
-        // Git repository detection
         if is_git_repository(&resolved_path) {
             match Repository::open(&resolved_path) {
                 Ok(repo) => {
                     if repo.is_worktree() {
-                        // This path is a Git worktree
                         match git_repository_handler::get_main_repository_path(&resolved_path) {
                             Ok(main_repo_path) => {
                                 self.add_worktree_entry(
-                                    resolved_path.clone(), // worktree's own path
-                                    &main_repo_path,       // path to its main repo
-                                    None, // name will be basename of resolved_path for now
+                                    original_path.clone(), // Pass original path
+                                    resolved_path.clone(), // Pass resolved path
+                                    &main_repo_path,
+                                    None, // worktree_name_opt, basename will be derived from resolved_path
                                     entries,
                                     processed_resolved_paths,
                                 );
                             }
                             Err(e) => {
                                 warn!(path = %resolved_path.display(), error = %e, "Failed to get main repository path for worktree, treating as plain directory");
-                                // Fallback to adding as plain directory if main repo path fails
-                                self.add_plain_directory_entry(original_path, resolved_path, display_name_candidate, entries, processed_resolved_paths);
+                                self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
                             }
                         }
-                    } else {
-                        // This path is a main Git repository (standard or bare)
-                        debug!(path = %resolved_path.display(), name = %display_name_candidate, "Adding Git repository entry");
+                    } else { // Main Git repository (standard or bare)
+                        debug!(path = %resolved_path.display(), name = %basename_of_resolved_path, "Adding Git repository entry");
                         let repo_entry = DirectoryEntry {
-                            path: original_path,
+                            path: original_path.clone(), // Use original path
                             resolved_path: resolved_path.clone(),
-                            display_name: display_name_candidate.clone(), // Use candidate, final formatting in task 5
+                            display_name: basename_of_resolved_path.clone(), // Basename of resolved_path
                             entry_type: DirectoryType::GitRepository,
                             parent_path: None,
                         };
                         entries.push(repo_entry);
                         processed_resolved_paths.insert(resolved_path.clone());
 
-                        // Now, find and add its linked worktrees
                         match list_linked_worktrees(&resolved_path) {
                             Ok(linked_worktrees) => {
                                 debug!(repo_path = %resolved_path.display(), count = linked_worktrees.len(), "Found linked worktrees");
                                 for worktree_info in linked_worktrees {
-                                    // Ensure worktree_info.path is canonicalized for consistent checking
-                                    match fs::canonicalize(&worktree_info.path) {
+                                    let wt_path_from_git = worktree_info.path; // Path as stored in git
+                                    match fs::canonicalize(&wt_path_from_git) {
                                         Ok(canonical_wt_path) => {
+                                            if !canonical_wt_path.is_dir() {
+                                                warn!(wt_path = %wt_path_from_git.display(), resolved_wt_path = %canonical_wt_path.display(), "Linked worktree path is not a directory, skipping");
+                                                continue;
+                                            }
                                              self.add_worktree_entry(
-                                                canonical_wt_path,
-                                                &resolved_path, // The current repo is the main repo for these worktrees
-                                                Some(worktree_info.name),
+                                                wt_path_from_git.clone(), // Original is path from git
+                                                canonical_wt_path,        // Resolved path
+                                                &resolved_path, // The current repo is the main repo
+                                                Some(worktree_info.name), // Name from git, not used for display but passed
                                                 entries,
                                                 processed_resolved_paths,
                                             );
                                         }
                                         Err(e) => {
-                                            warn!(wt_path = %worktree_info.path.display(), error = %e, "Could not canonicalize linked worktree path, skipping");
+                                            warn!(wt_path = %wt_path_from_git.display(), error = %e, "Could not canonicalize linked worktree path, skipping");
                                         }
                                     }
                                 }
@@ -203,12 +218,11 @@ impl<'a> DirectoryScanner<'a> {
                 }
                 Err(e) => {
                     warn!(path = %resolved_path.display(), error = %e, "Failed to open path as Git repository despite initial check, treating as plain");
-                    self.add_plain_directory_entry(original_path, resolved_path, display_name_candidate, entries, processed_resolved_paths);
+                    self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
                 }
             }
-        } else {
-            // Not a Git repository, add as plain directory
-            self.add_plain_directory_entry(original_path, resolved_path, display_name_candidate, entries, processed_resolved_paths);
+        } else { // Not a Git repository
+            self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
         }
     }
     
@@ -217,7 +231,7 @@ impl<'a> DirectoryScanner<'a> {
         &self,
         original_path: PathBuf,
         resolved_path: PathBuf,
-        display_name: String,
+        display_name: String, // This is already basename of resolved_path
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
     ) {
@@ -229,9 +243,9 @@ impl<'a> DirectoryScanner<'a> {
         }
         debug!(name = %display_name, path = %resolved_path.display(), "Adding plain directory entry");
         let dir_entry = DirectoryEntry {
-            path: original_path,
+            path: original_path, // Use the original path
             resolved_path: resolved_path.clone(),
-            display_name,
+            display_name, // Basename of resolved_path
             entry_type: DirectoryType::Plain,
             parent_path: None,
         };
@@ -239,10 +253,9 @@ impl<'a> DirectoryScanner<'a> {
         processed_resolved_paths.insert(resolved_path);
     }
 
-
+    // scan function remains the same as it calls process_path_candidate
+    // ... (scan function definition) ...
     pub fn scan(&self) -> Vec<DirectoryEntry> {
-        // ... (scan method largely remains the same, calling process_path_candidate)
-        // Ensure you are using the updated process_path_candidate
         let scan_span = span!(Level::INFO, "directory_scan");
         let _enter = scan_span.enter();
 
@@ -277,15 +290,18 @@ impl<'a> DirectoryScanner<'a> {
                 .into_iter()
                 .filter_map(|e| {
                     if let Err(ref err_val) = e {
-                        // Log errors from WalkDir, e.g. permission denied
-                        warn!(path = ?err_val.path(), error = %err_val, "Error walking directory child");
+                        warn!(path = ?err_val.path(), error = %err_val.io_error().map(|ioe| ioe.to_string()), "Error walking directory child");
                     }
                     e.ok()
                 })
             {
-                let original_path = entry_result.path().to_path_buf();
-                // process_path_candidate will check if it's a directory and handle symlinks via canonicalize
-                self.process_path_candidate(original_path, &mut entries, &mut processed_resolved_paths);
+                // entry_result.path() is already resolved if follow_links is true,
+                // but we pass it as original_path to process_path_candidate, which then canonicalizes it again.
+                // This is slightly redundant but ensures canonicalization.
+                // A more optimized way would be to use entry_result.path() as potentially pre-resolved.
+                // However, fs::canonicalize is robust.
+                let path_from_walkdir = entry_result.path().to_path_buf();
+                self.process_path_candidate(path_from_walkdir, &mut entries, &mut processed_resolved_paths);
             }
         }
 
