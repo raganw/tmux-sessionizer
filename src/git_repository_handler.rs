@@ -300,27 +300,26 @@ mod tests {
         let main_repo_dir = tempdir().unwrap();
         let repo = init_repo(main_repo_dir.path());
 
-        // Create a commit for the branch to be based on
+        // Create an initial commit. This also sets up HEAD on the default branch (e.g., main/master).
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        let initial_commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[]).unwrap();
-        let initial_commit = repo.find_commit(initial_commit_oid).unwrap();
-        repo.branch("main", &initial_commit, true).expect("Failed to create main branch");
-        // Set HEAD to the new main branch to ensure it's not unborn
-        repo.set_head("refs/heads/main").expect("Failed to set HEAD to main branch");
+        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
+            .expect("Failed to create initial commit");
         
+        // HEAD should now point to a valid branch with a commit.
+        let head_branch_ref = repo.head().expect("Failed to get HEAD reference");
+        // Ensure it's a direct reference to a branch, not detached HEAD or unborn.
+        assert!(head_branch_ref.is_branch(), "HEAD is not on a branch after initial commit");
+
         let wt_dir = tempdir().unwrap();
-        let wt_path = wt_dir.path(); // Path for the new worktree
+        let wt_path = wt_dir.path();
         let wt_name = "feature-branch";
 
-        // Add worktree using git2
         let mut opts = WorktreeAddOptions::new();
-        let branch_ref = repo.find_reference("refs/heads/main").unwrap();
-        opts.reference(Some(&branch_ref)); 
+        // Use the reference that HEAD points to (which should be a branch like refs/heads/main)
+        opts.reference(Some(&head_branch_ref)); 
         
-        // Need to ensure the path for the worktree is outside the main repo's temp dir
-        // or use a relative path that makes sense. tempdir() creates unique paths.
         let _git2_worktree = repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
         
         let worktrees = list_linked_worktrees(main_repo_dir.path()).unwrap();
@@ -360,18 +359,18 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        let initial_commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[]).unwrap();
-        let initial_commit = repo.find_commit(initial_commit_oid).unwrap();
-        repo.branch("main", &initial_commit, true).expect("Failed to create main branch");
-        repo.set_head("refs/heads/main").expect("Failed to set HEAD to main branch");
+        repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
+            .expect("Failed to create initial commit");
 
-        let wt_dir = tempdir().unwrap(); // Separate temp dir for the worktree
+        let head_branch_ref = repo.head().expect("Failed to get HEAD reference");
+        assert!(head_branch_ref.is_branch(), "HEAD is not on a branch after initial commit");
+
+        let wt_dir = tempdir().unwrap(); 
         let wt_path = wt_dir.path();
         let wt_name = "linked-feature";
         
         let mut opts = WorktreeAddOptions::new();
-        let branch_ref = repo.find_reference("refs/heads/main").unwrap();
-        opts.reference(Some(&branch_ref));
+        opts.reference(Some(&head_branch_ref));
         repo.worktree(wt_name, wt_path, Some(&opts)).unwrap();
 
         let main_path_from_worktree = get_main_repository_path(wt_path).unwrap();
