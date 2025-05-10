@@ -243,4 +243,13 @@ mod tests {
         let expected_output = "p1\t/res/p1\np2_display\t/res/p2";
         assert_eq!(fuzzy_finder.prepare_skim_input(&entries), expected_output);
     }
+
+    #[test]
+    fn test_select_with_empty_entries_returns_ok_none() {
+        let finder = FuzzyFinder::new();
+        let entries = Vec::new();
+        let result = finder.select(entries);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
 }
