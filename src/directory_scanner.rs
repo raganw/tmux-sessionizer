@@ -112,7 +112,8 @@ impl<'a> DirectoryScanner<'a> {
             path: original_path, // Store the path as it was found/provided
             resolved_path: resolved_path.clone(),
             display_name,
-            entry_type: DirectoryType::Plain,
+            entry_type: DirectoryType::Plain, // This will be updated later for Git types
+            parent_path: None, // Add this line
         };
 
         entries.push(dir_entry);
