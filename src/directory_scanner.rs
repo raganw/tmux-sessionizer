@@ -1,5 +1,6 @@
 use crate::config::Config; // Add this to use the Config struct
 use crate::container_detector;
+use crate::error::Result; // Add this line to import your custom Result type
 use crate::git_repository_handler::{
     self, is_git_repository, list_linked_worktrees,
 };
