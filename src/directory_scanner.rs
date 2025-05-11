@@ -447,7 +447,7 @@ mod tests {
         config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan children of base_dir
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan();
+        let entries = scanner.scan().expect("Scan failed in test");
 
         let canonical_container_path = fs::canonicalize(&container_path).unwrap();
         let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap();
@@ -460,26 +460,26 @@ mod tests {
             .to_string_lossy();
 
         // The container itself should NOT be an entry
-        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_path), "Bare repo container itself should be skipped. Entries: {:?}", entries);
+        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_path), "Bare repo container itself should be skipped. Entries: {:?}", &entries);
         
         // Its worktrees SHOULD be entries
         let wt1_entry = entries.iter().find(|e| e.resolved_path == canonical_wt1_path);
-        assert!(wt1_entry.is_some(), "Worktree 1 should be listed. Entries: {:?}", entries);
+        assert!(wt1_entry.is_some(), "Worktree 1 should be listed. Entries: {:?}", &entries);
         assert!(matches!(wt1_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 1 should be of type GitWorktree");
         assert_eq!(wt1_entry.unwrap().display_name, format!("[{}] feature_a", container_name));
 
 
         let wt2_entry = entries.iter().find(|e| e.resolved_path == canonical_wt2_path);
-        assert!(wt2_entry.is_some(), "Worktree 2 should be listed. Entries: {:?}", entries);
+        assert!(wt2_entry.is_some(), "Worktree 2 should be listed. Entries: {:?}", &entries);
         assert!(matches!(wt2_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 2 should be of type GitWorktree");
         assert_eq!(wt2_entry.unwrap().display_name, format!("[{}] bugfix_b", container_name));
 
 
         // The plain project should be an entry
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_project_path && e.entry_type == DirectoryType::Plain), "Plain project should be listed. Entries: {:?}", entries);
+        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_project_path && e.entry_type == DirectoryType::Plain), "Plain project should be listed. Entries: {:?}", &entries);
 
         // Total entries: wt1, wt2, plain_project = 3
-        assert_eq!(entries.len(), 3, "Expected 3 entries (2 worktrees, 1 plain project). Entries: {:?}", entries);
+        assert_eq!(entries.len(), 3, "Expected 3 entries (2 worktrees, 1 plain project). Entries: {:?}", &entries);
     }
 
     #[test]
@@ -505,7 +505,7 @@ mod tests {
         config.search_paths = vec![base_dir.path().to_path_buf()];
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan();
+        let entries = scanner.scan().expect("Scan failed in test");
         
         let canonical_main_repo_dir = fs::canonicalize(&main_repo_dir).unwrap();
         // wt1 and wt2 are children of non_repo_container_dir_path, which is skipped.
@@ -519,10 +519,10 @@ mod tests {
         assert!(entries.iter().any(|e| e.resolved_path == canonical_wt1_path)); 
         assert!(entries.iter().any(|e| e.resolved_path == canonical_wt2_path)); 
         assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_dir_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_dir_path), "Non-repo worktree container should be excluded. Entries: {:?}", entries);
+        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_dir_path), "Non-repo worktree container should be excluded. Entries: {:?}", &entries);
         
         // main_repo_dir, its 2 worktrees, plain_project = 4 entries
-        assert_eq!(entries.len(), 4, "Expected 4 entries. Entries: {:?}", entries);
+        assert_eq!(entries.len(), 4, "Expected 4 entries. Entries: {:?}", &entries);
     }
 
     #[test]
@@ -544,10 +544,10 @@ mod tests {
         let mut config = default_test_config();
         config.search_paths = vec![base_dir.path().to_path_buf()];
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan();
+        let entries = scanner.scan().expect("Scan failed in test");
 
         // Expected: plain_project, git_project, central_bare.git, worktree_one
-        assert_eq!(entries.len(), 4, "Should find plain, git repo, bare repo, and its worktree. Entries: {:?}", entries);
+        assert_eq!(entries.len(), 4, "Should find plain, git repo, bare repo, and its worktree. Entries: {:?}", &entries);
 
         let canonical_plain_project_path = fs::canonicalize(&plain_project_path).unwrap();
         let canonical_git_project_path = fs::canonicalize(&git_project_path).unwrap();
@@ -591,9 +591,9 @@ mod tests {
         config.additional_paths = vec![additional_project_path.clone()];
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan();
+        let entries = scanner.scan().expect("Scan failed in test");
         
-        assert_eq!(entries.len(), 2, "Entries: {:?}", entries);
+        assert_eq!(entries.len(), 2, "Entries: {:?}", &entries);
 
         let canonical_project_in_dev_path = fs::canonicalize(&project_in_dev_path).unwrap();
         let canonical_additional_project_path = fs::canonicalize(&additional_project_path).unwrap();
@@ -614,7 +614,7 @@ mod tests {
         config.exclude_patterns = vec![Regex::new("_exclude$").unwrap()];
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan();
+        let entries = scanner.scan().expect("Scan failed in test");
 
         assert_eq!(entries.len(), 1);
 
@@ -636,9 +636,9 @@ mod tests {
         config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan base_dir children
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan();
+        let entries = scanner.scan().expect("Scan failed in test");
         
-        assert_eq!(entries.len(), 1, "Only visible_project should be found. Entries: {:?}", entries);
+        assert_eq!(entries.len(), 1, "Only visible_project should be found. Entries: {:?}", &entries);
 
         let canonical_visible_project_path = fs::canonicalize(&visible_project_path).unwrap();
         let canonical_hidden_project_path = fs::canonicalize(&hidden_project_path).unwrap();
@@ -657,9 +657,9 @@ mod tests {
         config.additional_paths = vec![hidden_config_path.clone()]; // Explicitly add .myconfig
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan();
+        let entries = scanner.scan().expect("Scan failed in test");
         
-        assert_eq!(entries.len(), 1, "Explicitly added hidden dir should be found. Entries: {:?}", entries);
+        assert_eq!(entries.len(), 1, "Explicitly added hidden dir should be found. Entries: {:?}", &entries);
 
         let canonical_hidden_config_path = fs::canonicalize(&hidden_config_path).unwrap();
         assert!(entries.iter().any(|e| e.resolved_path == canonical_hidden_config_path));

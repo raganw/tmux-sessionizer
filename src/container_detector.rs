@@ -1,4 +1,4 @@
-use crate::error::{AppError, Result}; // Added AppError here for explicit error construction if needed
+use crate::error::Result;
 use crate::git_repository_handler;
 use git2::Repository;
 use std::ffi::OsStr;
