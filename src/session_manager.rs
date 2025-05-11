@@ -1,11 +1,24 @@
 
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::env; // For checking TMUX env var
 use tmux_interface::{AttachSession, HasSession, ListSessions, NewSession, SwitchClient, Tmux, Error as TmuxError};
 use tracing::{debug, error};
 
+use crate::directory_scanner::DirectoryEntry; // For creating Selection
+
 pub struct SessionManager {}
+
+/// Represents a user's chosen directory, ready for session management.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Selection {
+    /// The canonical filesystem path to the selected directory.
+    pub path: PathBuf,
+    /// The name displayed to the user in the fuzzy finder.
+    pub display_name: String,
+    /// The generated or existing tmux session name for this selection.
+    pub session_name: String,
+}
 
 impl SessionManager {
     /// Creates a new `SessionManager`.
@@ -198,6 +211,30 @@ impl SessionManager {
                 error!("Failed to attach to session '{}': {:?}", session_name, e);
                 e
             })
+        }
+    }
+
+    /// Creates a `Selection` struct from a `DirectoryEntry`.
+    ///
+    /// This involves determining the final path, display name, and generating
+    /// the appropriate tmux session name.
+    ///
+    /// # Arguments
+    ///
+    /// * `dir_entry`: A reference to the `DirectoryEntry` chosen by the user.
+    ///
+    /// # Returns
+    ///
+    /// A `Selection` struct populated with details from the `DirectoryEntry`.
+    pub fn create_selection_from_directory_entry(&self, dir_entry: &DirectoryEntry) -> Selection {
+        let session_name = self.generate_session_name(
+            &dir_entry.resolved_path,
+            dir_entry.parent_path.as_deref(),
+        );
+        Selection {
+            path: dir_entry.resolved_path.clone(),
+            display_name: dir_entry.display_name.clone(),
+            session_name,
         }
     }
 }
