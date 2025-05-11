@@ -59,7 +59,7 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
     } else {
         tracing::info!("No direct selection provided, launching fuzzy finder.");
         if scanned_entries.is_empty() {
-            println!("No scannable project directories found. Nothing to select.");
+            tracing::info!("No scannable project directories found. Nothing to select.");
             return Ok(());
         }
         selection_result = fuzzy_finder.select(&scanned_entries); // Pass as a slice reference
@@ -69,9 +69,9 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
     let selected_item_option = selection_result?; // Propagate errors from selection process
 
     if let Some(selected_item) = selected_item_option {
-        println!("\nFinal Selection:");
-        println!("  Display Name: {}", selected_item.display_name);
-        println!("  Path: {}", selected_item.path.display());
+        tracing::info!("Final Selection:");
+        tracing::info!("  Display Name: {}", selected_item.display_name);
+        tracing::info!("  Path: {}", selected_item.path.display());
 
         let original_dir_entry_opt = scanned_entries.iter().find(|entry| {
             entry.resolved_path == selected_item.path && entry.display_name == selected_item.display_name
@@ -81,49 +81,49 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
             let session_manager = session_manager::SessionManager::new();
             let sm_selection = session_manager.create_selection_from_directory_entry(original_dir_entry);
 
-            println!("  Session Name: {}", sm_selection.session_name);
+            tracing::info!("  Session Name: {}", sm_selection.session_name);
 
             match session_manager.is_tmux_server_running() {
                 Ok(true) => {
                     tracing::info!("Tmux server is running.");
                     match session_manager.session_exists(&sm_selection.session_name) {
                         Ok(true) => {
-                            tracing::info!("Session '{}' exists. Switching/Attaching.", sm_selection.session_name);
+                            tracing::info!(session_name = %sm_selection.session_name, "Session exists. Switching/Attaching.");
                             session_manager.switch_or_attach_to_session(&sm_selection.session_name)?;
-                            println!("Successfully switched/attached to session '{}'.", sm_selection.session_name);
+                            tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to session.");
                         }
                         Ok(false) => {
-                            tracing::info!("Session '{}' does not exist. Creating new session.", sm_selection.session_name);
+                            tracing::info!(session_name = %sm_selection.session_name, "Session does not exist. Creating new session.");
                             session_manager.create_new_session(&sm_selection.session_name, &sm_selection.path)?;
-                            println!("Successfully created session '{}'.", sm_selection.session_name);
+                            tracing::info!(session_name = %sm_selection.session_name, "Successfully created session.");
                             
-                            tracing::info!("Attempting to switch/attach to newly created session '{}'.", sm_selection.session_name);
+                            tracing::info!(session_name = %sm_selection.session_name, "Attempting to switch/attach to newly created session.");
                             session_manager.switch_or_attach_to_session(&sm_selection.session_name)?;
-                            println!("Successfully switched/attached to new session '{}'.", sm_selection.session_name);
+                            tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to new session.");
                         }
                         Err(e) => {
                             // Error checking session existence is distinct from action errors
-                            eprintln!("Error checking if session '{}' exists: {}", sm_selection.session_name, e);
+                            tracing::error!(session_name = %sm_selection.session_name, error = %e, "Error checking if session exists.");
                         }
                     }
                 }
                 Ok(false) => {
-                    println!("Tmux server is not running. Cannot manage session '{}'.", sm_selection.session_name);
-                    println!("Please start tmux server to use session management features.");
+                    tracing::warn!(session_name = %sm_selection.session_name, "Tmux server is not running. Cannot manage session.");
+                    tracing::info!("Please start tmux server to use session management features.");
                 }
                 Err(e) => {
                     // Error checking server status
-                    eprintln!("Error checking tmux server status: {}", e);
+                    tracing::error!(error = %e, "Error checking tmux server status.");
                 }
             }
         } else {
-            eprintln!("Error: Could not find the original directory entry for the selection. This is unexpected.");
-            eprintln!("Selected item details: Display Name: '{}', Path: '{}'", selected_item.display_name, selected_item.path.display());
+            tracing::error!("Could not find the original directory entry for the selection. This is unexpected.");
+            tracing::error!(display_name = %selected_item.display_name, path = %selected_item.path.display(), "Selected item details for missing original entry");
         }
     } else { // Corresponds to Ok(None) from selection_result
-        println!("\nNo selection made or selection cancelled.");
+        tracing::info!("No selection made or selection cancelled.");
         if config.direct_selection.is_some() {
-            eprintln!("Direct selection target '{}' not found or was ambiguous.", config.direct_selection.as_ref().unwrap());
+            tracing::warn!(target = %config.direct_selection.as_ref().unwrap(), "Direct selection target not found or was ambiguous.");
         }
     }
     Ok(())

@@ -462,7 +462,7 @@ mod tests {
         
         // Skip test if symlink creation failed (e.g. permissions on Windows, or not supported)
         if !symlink_path.exists() && !symlink_path.is_symlink() {
-            warn!("Symlink creation failed or not supported, skipping test_direct_select_original_path_match");
+            tracing::warn!("Symlink creation failed or not supported, skipping test_direct_select_original_path_match");
             return;
         }
 
@@ -482,8 +482,8 @@ mod tests {
         assert_eq!(selection.path, canonical_project_target_path);
         
         // fs::remove_file on symlink, or remove_dir if it's a directory symlink
-        #[cfg(unix)] fs::remove_file(&symlink_path).unwrap_or_else(|e| eprintln!("Failed to remove symlink file: {}",e));
-        #[cfg(windows)] fs::remove_dir(&symlink_path).unwrap_or_else(|e| eprintln!("Failed to remove symlink dir: {}",e));
+        #[cfg(unix)] fs::remove_file(&symlink_path).unwrap_or_else(|e| tracing::warn!("Failed to remove symlink file: {}",e));
+        #[cfg(windows)] fs::remove_dir(&symlink_path).unwrap_or_else(|e| tracing::warn!("Failed to remove symlink dir: {}",e));
         fs::remove_dir(&project_target_path).unwrap();
     }
 
