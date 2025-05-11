@@ -76,13 +76,19 @@ impl SessionManager {
                 Ok(true)
             }
             Err(e) => {
-                if matches!(e, TmuxError::ServerNotStarted(_)) {
-                    debug!("Tmux server is not running.");
-                    Ok(false)
+                if let TmuxError::Tmux(message) = &e {
+                    if message.contains("no server running") || message.contains("failed to connect to server") {
+                        debug!("Tmux server is not running (detected via error message).");
+                        Ok(false)
+                    } else {
+                        debug!("Tmux command error while checking server status: {}", message);
+                        Err(e) // Propagate other tmux errors
+                    }
                 } else {
-                    debug!("Error checking tmux server status: {}", e);
-                    Err(e)
+                    debug!("Non-tmux error while checking server status: {}", e);
+                    Err(e) // Propagate IO, Parse, etc. errors
                 }
+
             }
         }
     }
@@ -107,12 +113,17 @@ impl SessionManager {
                 Ok(exists)
             }
             Err(e) => {
-                if matches!(e, TmuxError::ServerNotStarted(_)) {
-                    debug!("Tmux server not running, so session '{}' cannot exist.", session_name);
-                    Ok(false) // If server isn't running, session can't exist.
+                if let TmuxError::Tmux(message) = &e {
+                    if message.contains("no server running") || message.contains("failed to connect to server") {
+                        debug!("Tmux server not running, so session '{}' cannot exist (detected via error message).", session_name);
+                        Ok(false) // If server isn't running, session can't exist.
+                    } else {
+                        debug!("Tmux command error while checking for session '{}': {}", session_name, message);
+                        Err(e) // Propagate other tmux errors
+                    }
                 } else {
-                    debug!("Error checking for session '{}': {}.", session_name, e);
-                    Err(e)
+                    debug!("Non-tmux error while checking for session '{}': {}", session_name, e);
+                    Err(e) // Propagate IO, Parse, etc. errors
                 }
             }
         }
