@@ -164,16 +164,9 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
 
     // Canonicalize the determined path.
     // Note: fs::canonicalize might fail if the path doesn't exist, but at this stage, it should.
-    match std::fs::canonicalize(&main_path_candidate) {
-        Ok(p) => {
-            debug!(path = %p.display(), "Canonicalized main repository path");
-            Ok(p)
-        }
-        Err(e) => {
-            error!(path = %main_path_candidate.display(), error = %e, "Failed to canonicalize main repository path, using non-canonical");
-            Ok(main_path_candidate)
-        }
-    }
+    let canonical_path = std::fs::canonicalize(&main_path_candidate)?;
+    debug!(path = %canonical_path.display(), "Canonicalized main repository path");
+    Ok(canonical_path)
 }
 
 

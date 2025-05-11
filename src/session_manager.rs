@@ -177,8 +177,14 @@ impl SessionManager {
         }
 
         Tmux::new().command(new_session_cmd).output().map(|_| ()).map_err(|e| {
-            error!("Failed to create new session '{}' at path '{}': {:?}", session_name, start_directory.display(), e);
-            AppError::from(e)
+            let err_msg = format!(
+                "Failed to create new session '{}' for directory '{}': {}",
+                session_name,
+                start_directory.display(),
+                e
+            );
+            error!("{}", err_msg); // Log the detailed error
+            AppError::SessionError(err_msg)
         })
     }
 
@@ -195,14 +201,16 @@ impl SessionManager {
         if self.is_inside_tmux_session() {
             let switch_client_cmd = SwitchClient::new().target_session(session_name);
             Tmux::new().command(switch_client_cmd).output().map(|_| ()).map_err(|e| {
-                error!("Failed to switch client to session '{}': {:?}", session_name, e);
-                AppError::from(e)
+                let err_msg = format!("Failed to switch client to session '{}': {}", session_name, e);
+                error!("{}", err_msg);
+                AppError::SessionError(err_msg)
             })
         } else {
             let attach_session_cmd = AttachSession::new().target_session(session_name);
             Tmux::new().command(attach_session_cmd).output().map(|_| ()).map_err(|e| {
-                error!("Failed to attach to session '{}': {:?}", session_name, e);
-                AppError::from(e)
+                let err_msg = format!("Failed to attach to session '{}': {}", session_name, e);
+                error!("{}", err_msg);
+                AppError::SessionError(err_msg)
             })
         }
     }
