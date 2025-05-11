@@ -76,7 +76,7 @@ impl SessionManager {
                 Ok(true)
             }
             Err(e) => {
-                if e.is_server_not_running() {
+                if matches!(e, TmuxError::ServerNotStarted(_)) {
                     debug!("Tmux server is not running.");
                     Ok(false)
                 } else {
@@ -107,7 +107,7 @@ impl SessionManager {
                 Ok(exists)
             }
             Err(e) => {
-                if e.is_server_not_running() {
+                if matches!(e, TmuxError::ServerNotStarted(_)) {
                     debug!("Tmux server not running, so session '{}' cannot exist.", session_name);
                     Ok(false) // If server isn't running, session can't exist.
                 } else {
