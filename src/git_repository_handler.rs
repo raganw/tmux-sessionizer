@@ -47,7 +47,7 @@ pub fn is_bare_repository(repo_path: &Path) -> Result<bool> {
         }
         Err(e) => {
             error!(path = %repo_path.display(), error = %e, "Failed to open repository to check if bare");
-            Err(e)
+            Err(e.into()) // Convert git2::Error to AppError
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::directory_scanner::DirectoryEntry; // For creating Selection
-use crate::error::Result; // Add this line
+use crate::error::{AppError, Result}; // Add AppError here
 use std::env; // For checking TMUX env var
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -89,13 +89,11 @@ impl SessionManager {
                 Ok(true)
             }
             Err(e) => {
-                // Check if the error is specifically a TmuxInterfaceError::Tmux variant
-                if let Some(tmux_error_variant) = e.downcast_ref::<TmuxInterfaceError>() {
-                    if let TmuxInterfaceError::Tmux(message) = tmux_error_variant {
-                        if message.contains("no server running") || message.contains("failed to connect to server") {
-                            debug!("Tmux server is not running (detected via error message).");
-                            return Ok(false);
-                        }
+                // Check if the error is specifically a TmuxInterfaceError::Tmux variant with a relevant message
+                if let TmuxInterfaceError::Tmux(ref message) = e {
+                    if message.contains("no server running") || message.contains("failed to connect to server") {
+                        debug!("Tmux server is not running (detected via error message).");
+                        return Ok(false);
                     }
                 }
                 // If it's not the specific "no server" message, or a different type of error, propagate it.
@@ -125,13 +123,11 @@ impl SessionManager {
                 Ok(exists)
             }
             Err(e) => {
-                // Check if the error is specifically a TmuxInterfaceError::Tmux variant
-                if let Some(tmux_error_variant) = e.downcast_ref::<TmuxInterfaceError>() {
-                    if let TmuxInterfaceError::Tmux(message) = tmux_error_variant {
-                         if message.contains("no server running") || message.contains("failed to connect to server") {
-                            debug!("Tmux server not running, so session '{}' cannot exist (detected via error message).", session_name);
-                            return Ok(false); // If server isn't running, session can't exist.
-                        }
+                // Check if the error is specifically a TmuxInterfaceError::Tmux variant with a relevant message
+                if let TmuxInterfaceError::Tmux(ref message) = e {
+                    if message.contains("no server running") || message.contains("failed to connect to server") {
+                        debug!("Tmux server not running, so session '{}' cannot exist (detected via error message).", session_name);
+                        return Ok(false); // If server isn't running, session can't exist.
                     }
                 }
                 debug!("Error while checking for session '{}': {}", session_name, e);
