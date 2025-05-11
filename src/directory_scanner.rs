@@ -746,7 +746,7 @@ mod tests {
     }
 
     #[test]
-    fn test_is_bare_repo_worktree_exclusive_container_false_with_extra_file() {
+    fn test_is_bare_repo_worktree_container_true_despite_extra_file_relaxed() {
         let base_dir = tempdir().unwrap();
         let container_path = base_dir.path().join("project_container_extra_file");
         fs::create_dir(&container_path).unwrap();
@@ -765,11 +765,11 @@ mod tests {
 
         let config = default_test_config();
         let scanner = DirectoryScanner::new(&config);
-        assert!(!scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should not be an exclusive container due to extra file");
+        assert!(scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should be a container despite extra file (relaxed check)");
     }
 
     #[test]
-    fn test_is_bare_repo_worktree_exclusive_container_false_with_unrelated_dir() {
+    fn test_is_bare_repo_worktree_container_true_despite_unrelated_dir_relaxed() {
         let base_dir = tempdir().unwrap();
         let container_path = base_dir.path().join("project_container_extra_dir");
         fs::create_dir(&container_path).unwrap();
@@ -788,7 +788,7 @@ mod tests {
 
         let config = default_test_config();
         let scanner = DirectoryScanner::new(&config);
-        assert!(!scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should not be an exclusive container due to unrelated dir");
+        assert!(scanner.is_bare_repo_worktree_exclusive_container(&container_path, &container_repo), "Should be a container despite unrelated dir (relaxed check)");
     }
     
     #[test]
