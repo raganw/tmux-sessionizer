@@ -75,13 +75,13 @@ impl FuzzyFinder {
     /// * `Ok(Some(SelectedItem))` if the user makes a selection.
     /// * `Ok(None)` if the user cancels the selection (e.g., by pressing Esc).
     /// * `Err(anyhow::Error)` if an error occurs during the Skim process or parsing the selection.
-    pub fn select(&self, entries: Vec<DirectoryEntry>) -> Result<Option<SelectedItem>> {
+    pub fn select(&self, entries: &[DirectoryEntry]) -> Result<Option<SelectedItem>> {
         if entries.is_empty() {
             debug!("No entries provided to fuzzy finder, returning None.");
             return Ok(None);
         }
 
-        let skim_input = self.prepare_skim_input(&entries);
+        let skim_input = self.prepare_skim_input(entries); // Pass slice directly
         debug!("Skim input prepared with {} entries.", entries.len());
         if skim_input.is_empty() && !entries.is_empty() {
             // This case might happen if all entries somehow format to empty strings,
