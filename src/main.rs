@@ -2,13 +2,15 @@
 mod config;
 mod container_detector; // Add this line
 mod directory_scanner;
+mod error; // Add this line
 mod fuzzy_finder_interface;
 mod git_repository_handler;
 mod path_utils; // Add this line
-mod session_manager; 
+mod session_manager;
 
 use crate::config::Config; // Add this line
 use crate::directory_scanner::DirectoryScanner; // Add this line to import DirectoryScanner
+use crate::error::Result; // Add this line
 use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem}; // Import FuzzyFinder and SelectedItem
 use tracing::Level; // debug is already here, Level is used by setup_tracing
 
@@ -23,7 +25,7 @@ fn setup_tracing(debug_mode: bool) {
 }
 
 // Modify the main function as follows:
-fn main() -> anyhow::Result<()> { // Changed to return anyhow::Result for error propagation
+fn main() -> Result<()> { // Changed to return crate::error::Result for error propagation
     // 1. Parse command-line arguments and create a Config instance
     let config = Config::new();
 
@@ -48,7 +50,7 @@ fn main() -> anyhow::Result<()> { // Changed to return anyhow::Result for error 
 
     // 3. Initialize FuzzyFinder
     let fuzzy_finder = FuzzyFinder::new();
-    let selection_result: anyhow::Result<Option<SelectedItem>>;
+    let selection_result: Result<Option<SelectedItem>>;
 
     // 4. Perform selection (direct or fuzzy)
     if let Some(direct_selection_target) = &config.direct_selection {

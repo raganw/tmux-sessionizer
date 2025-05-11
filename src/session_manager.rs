@@ -1,11 +1,10 @@
-
+use crate::directory_scanner::DirectoryEntry; // For creating Selection
+use crate::error::Result; // Add this line
+use std::env; // For checking TMUX env var
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::env; // For checking TMUX env var
-use tmux_interface::{AttachSession, HasSession, ListSessions, NewSession, SwitchClient, Tmux, Error as TmuxError};
+use tmux_interface::{AttachSession, Error as TmuxInterfaceError, HasSession, ListSessions, NewSession, SwitchClient, Tmux}; // Aliased Error
 use tracing::{debug, error};
-
-use crate::directory_scanner::DirectoryEntry; // For creating Selection
 
 pub struct SessionManager {}
 
@@ -77,8 +76,8 @@ impl SessionManager {
     ///
     /// * `Ok(true)` if a tmux server is running.
     /// * `Ok(false)` if no tmux server is running.
-    /// * `Err(TmuxError)` if there was an issue communicating with tmux, other than the server not running.
-    pub fn is_tmux_server_running(&self) -> Result<bool, TmuxError> {
+    /// * `Err(AppError::TmuxError)` if there was an issue communicating with tmux, other than the server not running.
+    pub fn is_tmux_server_running(&self) -> Result<bool> {
         debug!("Checking if tmux server is running.");
         // Attempt a benign command like listing sessions.
         // If it succeeds, server is running.
@@ -90,19 +89,18 @@ impl SessionManager {
                 Ok(true)
             }
             Err(e) => {
-                if let TmuxError::Tmux(message) = &e {
-                    if message.contains("no server running") || message.contains("failed to connect to server") {
-                        debug!("Tmux server is not running (detected via error message).");
-                        Ok(false)
-                    } else {
-                        debug!("Tmux command error while checking server status: {}", message);
-                        Err(e) // Propagate other tmux errors
+                // Check if the error is specifically a TmuxInterfaceError::Tmux variant
+                if let Some(tmux_error_variant) = e.downcast_ref::<TmuxInterfaceError>() {
+                    if let TmuxInterfaceError::Tmux(message) = tmux_error_variant {
+                        if message.contains("no server running") || message.contains("failed to connect to server") {
+                            debug!("Tmux server is not running (detected via error message).");
+                            return Ok(false);
+                        }
                     }
-                } else {
-                    debug!("Non-tmux error while checking server status: {}", e);
-                    Err(e) // Propagate IO, Parse, etc. errors
                 }
-
+                // If it's not the specific "no server" message, or a different type of error, propagate it.
+                debug!("Error while checking server status: {}", e);
+                Err(e) // Propagate other errors (already AppError or convertible)
             }
         }
     }
@@ -117,8 +115,8 @@ impl SessionManager {
     ///
     /// * `Ok(true)` if the session exists.
     /// * `Ok(false)` if the session does not exist or if the tmux server is not running.
-    /// * `Err(TmuxError)` if there was an issue communicating with tmux, other than the server not running.
-    pub fn session_exists(&self, session_name: &str) -> Result<bool, TmuxError> {
+    /// * `Err(AppError::TmuxError)` if there was an issue communicating with tmux, other than the server not running.
+    pub fn session_exists(&self, session_name: &str) -> Result<bool> {
         debug!("Checking if session '{}' exists.", session_name);
         match Tmux::new().command(HasSession::new().target_session(session_name)).status() {
             Ok(status) => {
@@ -127,18 +125,17 @@ impl SessionManager {
                 Ok(exists)
             }
             Err(e) => {
-                if let TmuxError::Tmux(message) = &e {
-                    if message.contains("no server running") || message.contains("failed to connect to server") {
-                        debug!("Tmux server not running, so session '{}' cannot exist (detected via error message).", session_name);
-                        Ok(false) // If server isn't running, session can't exist.
-                    } else {
-                        debug!("Tmux command error while checking for session '{}': {}", session_name, message);
-                        Err(e) // Propagate other tmux errors
+                // Check if the error is specifically a TmuxInterfaceError::Tmux variant
+                if let Some(tmux_error_variant) = e.downcast_ref::<TmuxInterfaceError>() {
+                    if let TmuxInterfaceError::Tmux(message) = tmux_error_variant {
+                         if message.contains("no server running") || message.contains("failed to connect to server") {
+                            debug!("Tmux server not running, so session '{}' cannot exist (detected via error message).", session_name);
+                            return Ok(false); // If server isn't running, session can't exist.
+                        }
                     }
-                } else {
-                    debug!("Non-tmux error while checking for session '{}': {}", session_name, e);
-                    Err(e) // Propagate IO, Parse, etc. errors
                 }
+                debug!("Error while checking for session '{}': {}", session_name, e);
+                Err(e) // Propagate other errors
             }
         }
     }
@@ -164,8 +161,8 @@ impl SessionManager {
     /// # Returns
     ///
     /// * `Ok(())` if the session was created successfully.
-    /// * `Err(TmuxError)` if there was an error creating the session.
-    pub fn create_new_session(&self, session_name: &str, start_directory: &Path) -> Result<(), TmuxError> {
+    /// * `Err(AppError::TmuxError)` if there was an error creating the session.
+    pub fn create_new_session(&self, session_name: &str, start_directory: &Path) -> Result<()> {
         debug!(
             "Creating new session '{}' at path '{}'. Inside tmux: {}",
             session_name,
@@ -196,7 +193,7 @@ impl SessionManager {
     /// If not inside a tmux session, it uses `attach-session` to attach the current
     /// terminal to the specified session. This typically requires the tmux server to be running
     /// and the session to exist.
-    pub fn switch_or_attach_to_session(&self, session_name: &str) -> Result<(), TmuxError> {
+    pub fn switch_or_attach_to_session(&self, session_name: &str) -> Result<()> {
         debug!("Switching or attaching to session '{}'. Inside tmux: {}", session_name, self.is_inside_tmux_session());
 
         if self.is_inside_tmux_session() {

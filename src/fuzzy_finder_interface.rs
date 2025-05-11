@@ -1,6 +1,5 @@
-
 use crate::directory_scanner::DirectoryEntry;
-use anyhow::{anyhow, Context, Result}; // Add anyhow for error handling
+use crate::error::{AppError, Result}; // Add AppError and Result
 use skim::prelude::*; // Add skim prelude
 use std::fs; // For fs::canonicalize
 use std::io::Cursor; // To create a BufRead from String for Skim
@@ -74,7 +73,7 @@ impl FuzzyFinder {
     ///
     /// * `Ok(Some(SelectedItem))` if the user makes a selection.
     /// * `Ok(None)` if the user cancels the selection (e.g., by pressing Esc).
-    /// * `Err(anyhow::Error)` if an error occurs during the Skim process or parsing the selection.
+    /// * `Err(AppError)` if an error occurs during the Skim process or parsing the selection.
     pub fn select(&self, entries: &[DirectoryEntry]) -> Result<Option<SelectedItem>> {
         if entries.is_empty() {
             debug!("No entries provided to fuzzy finder, returning None.");
@@ -105,17 +104,19 @@ impl FuzzyFinder {
             // .preview(Some("")) // Enable preview window, command can be set
             // .delimiter(Some("\t")) // If Skim needs to parse fields internally
             .build()
-            .map_err(|e| anyhow!("Failed to build Skim options: {}", e))?;
+            .map_err(|e| AppError::FinderError(format!("Failed to build Skim options: {}", e)))?;
 
         // Create an item reader from the prepared input string
         let item_reader = SkimItemReader::default();
         let items = item_reader.of_bufread(Cursor::new(skim_input));
 
         // Run Skim and process the output
-        let skim_output = Skim::run_with(&options, Some(items))
-            .context("Skim execution failed or was cancelled by user initially")?;
-            // If Skim::run_with returns None, it means skim was aborted (e.g. ESC) before selection loop started.
-            // If it returns Some(output), then output.is_abort indicates if ESC was pressed during selection.
+        // Skim::run_with returns Option<SkimOutput>
+        let skim_output = Skim::run_with(&options, Some(items)).ok_or_else(|| {
+            AppError::FinderError("Skim execution failed or was cancelled by user initially".to_string())
+        })?;
+        // If Skim::run_with returns None, it means skim was aborted (e.g. ESC) before selection loop started.
+        // If it returns Some(output), then output.is_abort indicates if ESC was pressed during selection.
 
         if skim_output.is_abort {
             debug!("Skim selection aborted by user (e.g., ESC pressed).");
@@ -132,9 +133,11 @@ impl FuzzyFinder {
         }
 
         // We expect only one selected item due to `multi(false)`
-        let selected_skim_item = selected_items
-            .first()
-            .ok_or_else(|| anyhow!("Skim reported selection but no items found in selected_items list"))?;
+        let selected_skim_item = selected_items.first().ok_or_else(|| {
+            AppError::FinderError(
+                "Skim reported selection but no items found in selected_items list".to_string(),
+            )
+        })?;
 
         let selected_line = selected_skim_item.output().to_string();
         debug!("Skim selected line: '{}'", selected_line);
@@ -154,10 +157,10 @@ impl FuzzyFinder {
             );
             Ok(Some(SelectedItem { display_name, path }))
         } else {
-            Err(anyhow!(
+            Err(AppError::FinderError(format!(
                 "Selected line from Skim has unexpected format (expected 'display\\tpath'): '{}'",
                 selected_line
-            ))
+            )))
         }
     }
 
@@ -180,9 +183,10 @@ impl FuzzyFinder {
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(SelectedItem))` if a unique match is found.
+    /// * `Ok(Some(SelectedItem))` if a unique match is
+    /// found.
     /// * `Ok(None)` if no match is found.
-    /// * `Err(anyhow::Error)` if an error occurs (e.g., ambiguity, I/O error during canonicalization).
+    /// * `Err(AppError)` if an error occurs (e.g., ambiguity, I/O error during canonicalization).
     pub fn direct_select(
         &self,
         entries: &[DirectoryEntry],
@@ -262,7 +266,7 @@ impl FuzzyFinder {
         } else if suffix_matches.len() > 1 {
             let matched_paths: Vec<String> = suffix_matches.iter().map(|e| e.resolved_path.display().to_string()).collect();
             warn!("Direct selection: Search target '{}' is ambiguous by suffix, matched: {:?}", search_target_raw, matched_paths);
-            return Err(anyhow!("Search target '{}' is ambiguous: {} entries end with this path. Matches: {:?}", search_target_raw, suffix_matches.len(), matched_paths));
+            return Err(AppError::FinderError(format!("Search target '{}' is ambiguous: {} entries end with this path. Matches: {:?}", search_target_raw, suffix_matches.len(), matched_paths)));
         }
 
         // Priority 4: Exact match on `entry.display_name`
@@ -274,7 +278,7 @@ impl FuzzyFinder {
         } else if display_name_matches.len() > 1 {
             let matched_displays: Vec<String> = display_name_matches.iter().map(|e| format!("{} ({})", e.display_name, e.resolved_path.display())).collect();
             warn!("Direct selection: Search target '{}' is ambiguous by display name, matched: {:?}", search_target_raw, matched_displays);
-            return Err(anyhow!("Search target '{}' is ambiguous: {} entries have this display name. Matches: {:?}", search_target_raw, display_name_matches.len(), matched_displays));
+            return Err(AppError::FinderError(format!("Search target '{}' is ambiguous: {} entries have this display name. Matches: {:?}", search_target_raw, display_name_matches.len(), matched_displays)));
         }
 
         // Priority 5: Filename match on `entry.resolved_path.file_name()`
@@ -286,7 +290,7 @@ impl FuzzyFinder {
         } else if filename_matches.len() > 1 {
             let matched_filenames: Vec<String> = filename_matches.iter().map(|e| format!("{} ({})", e.resolved_path.file_name().unwrap_or_default().to_string_lossy(), e.resolved_path.display())).collect();
             warn!("Direct selection: Search target '{}' is ambiguous by filename, matched: {:?}", search_target_raw, matched_filenames);
-            return Err(anyhow!("Search target '{}' is ambiguous: {} entries have this filename. Matches: {:?}", search_target_raw, filename_matches.len(), matched_filenames));
+            return Err(AppError::FinderError(format!("Search target '{}' is ambiguous: {} entries have this filename. Matches: {:?}", search_target_raw, filename_matches.len(), matched_filenames)));
         }
 
         debug!("Direct selection: No unique match found for '{}'", search_target_raw);

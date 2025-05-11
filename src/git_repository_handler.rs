@@ -1,5 +1,6 @@
 
-use git2::{Error, Repository, WorktreeAddOptions}; // Added WorktreeAddOptions for tests
+use crate::error::Result; // Add this line
+use git2::{Error as Git2Error, Repository, WorktreeAddOptions}; // Added WorktreeAddOptions for tests, aliased Error
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, span, warn, Level}; // Added span and Level
 
@@ -29,7 +30,7 @@ pub fn is_git_repository(path: &Path) -> bool {
 /// For a normal repository, this is `path/.git/`.
 /// For a bare repository, this is `path/`.
 /// For a worktree, this points to the .git file which then points to the actual gitdir in the parent repo.
-pub fn get_git_dir_path(repo_path: &Path) -> Result<PathBuf, Error> {
+pub fn get_git_dir_path(repo_path: &Path) -> Result<PathBuf> {
     let repo = Repository::open(repo_path)?;
     let git_dir = repo.path().to_path_buf();
     debug!(repo_path = %repo_path.display(), git_dir = %git_dir.display(), "Found .git directory");
@@ -37,7 +38,7 @@ pub fn get_git_dir_path(repo_path: &Path) -> Result<PathBuf, Error> {
 }
 
 /// Checks if a Git repository at the given path is a bare repository.
-pub fn is_bare_repository(repo_path: &Path) -> Result<bool, Error> {
+pub fn is_bare_repository(repo_path: &Path) -> Result<bool> {
     match Repository::open(repo_path) {
         Ok(repo) => {
             let is_bare = repo.is_bare();
@@ -81,7 +82,7 @@ pub struct Worktree {
 /// Lists all linked worktrees for the given repository.
 /// The `repo_path` can be the path to the main working directory, a bare repository, or any of its linked worktrees.
 /// This function does NOT list the main worktree itself, only those added via `git worktree add`.
-pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>, Error> {
+pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
     let list_span = span!(Level::DEBUG, "list_linked_worktrees", repo_path = %repo_path.display());
     let _enter = list_span.enter();
 
@@ -127,7 +128,7 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>, Error> {
 /// If `path_in_repo` is part of a non-bare repository, this returns the path to its working directory.
 /// If `path_in_repo` is part of a bare repository, this returns the path to the bare repository itself.
 /// This works whether `path_in_repo` is in the main worktree or a linked worktree.
-pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf, Error> {
+pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
     let path_span = span!(Level::DEBUG, "get_main_repository_path", path_in_repo = %path_in_repo.display());
     let _enter = path_span.enter();
 
@@ -153,7 +154,7 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf, Error> {
                 } else {
                     // If main repo is not bare, its workdir is common_dir.parent()
                     common_dir.parent()
-                        .ok_or_else(|| Error::from_str("Worktree's common directory (for non-bare main repo) has no parent"))?
+                        .ok_or_else(|| Git2Error::from_str("Worktree's common directory (for non-bare main repo) has no parent"))?
                         .to_path_buf()
                 }
             }
@@ -168,7 +169,7 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf, Error> {
     } else {
         // For a non-bare, non-worktree repository, its workdir is the main repository path.
         debug!(path_in_repo = %path_in_repo.display(), "Repository is non-bare, non-worktree, main path is repo.workdir()");
-        repo.workdir().ok_or_else(|| Error::from_str("Non-bare, non-worktree repository has no workdir"))?.to_path_buf()
+        repo.workdir().ok_or_else(|| Git2Error::from_str("Non-bare, non-worktree repository has no workdir"))?.to_path_buf()
     };
     
     debug!(candidate_main_path = %main_path_candidate.display(), "Candidate main repository path determined");
