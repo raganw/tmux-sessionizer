@@ -1,9 +1,11 @@
 // Add these lines at the beginning of the file
 mod config;
+mod container_detector; // Add this line
 mod directory_scanner;
 mod fuzzy_finder_interface;
 mod git_repository_handler;
-mod session_manager;
+mod path_utils; // Add this line
+mod session_manager; 
 
 use crate::config::Config; // Add this line
 use crate::directory_scanner::DirectoryScanner; // Add this line to import DirectoryScanner
