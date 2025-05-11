@@ -845,6 +845,11 @@ mod tests {
         let canonical_wt2_path = fs::canonicalize(&wt2_path).unwrap();
         let canonical_plain_project_path = fs::canonicalize(&plain_project_path).unwrap();
 
+        let container_name = container_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+
         // The container itself should NOT be an entry
         assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_path), "Bare repo container itself should be skipped. Entries: {:?}", entries);
         
