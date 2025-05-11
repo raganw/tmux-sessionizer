@@ -1,8 +1,9 @@
 
 use std::ffi::OsStr;
 use std::path::Path;
-use tmux_interface::{HasSession, ListSessions, Tmux, Error as TmuxError};
-use tracing::debug;
+use std::env; // For checking TMUX env var
+use tmux_interface::{AttachSession, HasSession, ListSessions, NewSession, SwitchClient, Tmux, Error as TmuxError};
+use tracing::{debug, error};
 
 pub struct SessionManager {}
 
@@ -126,6 +127,75 @@ impl SessionManager {
                     Err(e) // Propagate IO, Parse, etc. errors
                 }
             }
+        }
+    }
+
+    /// Helper to check if currently inside a tmux session.
+    fn is_inside_tmux_session(&self) -> bool {
+        env::var("TMUX").is_ok()
+    }
+
+    /// Creates a new tmux session.
+    ///
+    /// If not already inside a tmux session (TMUX env var is not set),
+    /// this new session will be attached to the current terminal.
+    /// If inside an existing tmux session, this new session will be created detached.
+    /// In the latter case, `switch_or_attach_to_session` might be needed subsequently
+    /// if an immediate switch to the new session is desired.
+    ///
+    /// # Arguments
+    ///
+    /// * `session_name`: The desired name for the new tmux session.
+    /// * `start_directory`: The directory where the new session should start.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the session was created successfully.
+    /// * `Err(TmuxError)` if there was an error creating the session.
+    pub fn create_new_session(&self, session_name: &str, start_directory: &Path) -> Result<(), TmuxError> {
+        debug!(
+            "Creating new session '{}' at path '{}'. Inside tmux: {}",
+            session_name,
+            start_directory.display(),
+            self.is_inside_tmux_session()
+        );
+
+        let mut new_session_cmd = NewSession::new();
+        new_session_cmd = new_session_cmd.session_name(session_name);
+        new_session_cmd = new_session_cmd.start_directory(start_directory.to_string_lossy().as_ref());
+
+        if self.is_inside_tmux_session() {
+            new_session_cmd = new_session_cmd.detached();
+        }
+
+        Tmux::new().command(new_session_cmd).output().map(|_| ()).map_err(|e| {
+            error!("Failed to create new session '{}' at path '{}': {:?}", session_name, start_directory.display(), e);
+            e
+        })
+    }
+
+    /// Switches the current tmux client to an existing session, or attaches to it.
+    ///
+    /// If the program is run from within an existing tmux session (TMUX env var is set),
+    /// it uses `switch-client` to change the current client's active session.
+    /// If not inside a tmux session, it uses `attach-session` to attach the current
+    /// terminal to the specified session. This typically requires the tmux server to be running
+    /// and the session to exist.
+    pub fn switch_or_attach_to_session(&self, session_name: &str) -> Result<(), TmuxError> {
+        debug!("Switching or attaching to session '{}'. Inside tmux: {}", session_name, self.is_inside_tmux_session());
+
+        if self.is_inside_tmux_session() {
+            let switch_client_cmd = SwitchClient::new().target_session(session_name);
+            Tmux::new().command(switch_client_cmd).output().map(|_| ()).map_err(|e| {
+                error!("Failed to switch client to session '{}': {:?}", session_name, e);
+                e
+            })
+        } else {
+            let attach_session_cmd = AttachSession::new().target_session(session_name);
+            Tmux::new().command(attach_session_cmd).output().map(|_| ()).map_err(|e| {
+                error!("Failed to attach to session '{}': {:?}", session_name, e);
+                e
+            })
         }
     }
 }
