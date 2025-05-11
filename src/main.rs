@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> { // Changed to return anyhow::Result for error 
             println!("No scannable project directories found. Nothing to select.");
             return Ok(());
         }
-        selection_result = fuzzy_finder.select(scanned_entries); // select takes ownership
+        selection_result = fuzzy_finder.select(&scanned_entries); // Pass as a slice reference
     }
 
     // 5. Handle the selection outcome
