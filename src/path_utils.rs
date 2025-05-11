@@ -67,7 +67,9 @@ mod tests {
         // Temporarily unset HOME environment variable to simulate no home dir.
         // This is platform-dependent and might not work everywhere or might be flaky.
         let original_home = env::var_os("HOME");
-        env::remove_var("HOME");
+        // SAFETY: Modifying environment variables is unsafe. This is a test
+        // specifically designed to alter the HOME variable temporarily.
+        unsafe { env::remove_var("HOME"); }
 
         // On some systems, dirs::home_dir() might still find a home (e.g., from /etc/passwd).
         // This test is more of a best-effort for typical Unix-like systems where HOME matters most.
@@ -80,7 +82,9 @@ mod tests {
 
         // Restore HOME
         if let Some(home_val) = original_home {
-            env::set_var("HOME", home_val);
+            // SAFETY: Restoring the HOME environment variable. This is part of
+            // the test's controlled environment manipulation.
+            unsafe { env::set_var("HOME", home_val); }
         }
     }
 }

@@ -360,7 +360,7 @@ mod tests {
     use crate::config::Config;
     use git2::{Repository, WorktreeAddOptions, Signature}; // Added Signature
     use regex::Regex;
-    use std::fs::{self, File};
+    use std::fs::{self};
     use tempfile::tempdir;
 
     // Helper to initialize a standard git repo
