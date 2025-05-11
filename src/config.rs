@@ -1,6 +1,7 @@
 use clap::Parser;
 use regex::Regex;
 use std::path::PathBuf;
+use tracing::debug;
 
 #[derive(Parser, Debug)]
 #[command(name = "tmux-sessionizer")]
@@ -52,6 +53,8 @@ impl Default for Config {
 impl Config {
     pub fn new() -> Self {
         let cli_args = CliArgs::parse();
+        debug!(parsed_cli_args = ?cli_args, "Parsed command line arguments");
+
         let mut default_config = Config::default();
 
         // Override default debug_mode if --debug flag is present

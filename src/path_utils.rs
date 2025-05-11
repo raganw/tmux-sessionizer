@@ -1,19 +1,25 @@
 use std::path::{Path, PathBuf};
+use tracing::{debug, trace};
 
 // Helper function for tilde expansion
 pub fn expand_tilde(path: &Path) -> Option<PathBuf> {
+    trace!(input_path = %path.display(), "Attempting tilde expansion");
     if path.starts_with("~") {
         if let Some(home_dir) = dirs::home_dir() {
+            trace!(home_dir = %home_dir.display(), "Found home directory for tilde expansion");
             let mut new_path = home_dir;
             if path.components().count() > 1 { // Check if there's anything after ~
                  // Strip "~/" prefix and join the rest
                 new_path.push(path.strip_prefix("~").unwrap().strip_prefix("/").unwrap_or_else(|_| path.strip_prefix("~").unwrap()));
             }
+            trace!(expanded_path = %new_path.display(), "Path expanded after tilde processing");
             Some(new_path)
         } else {
+            debug!(path = %path.display(), "Home directory not found for tilde expansion");
             None // Home directory could not be determined
         }
     } else {
+        trace!(path = %path.display(), "Path does not start with tilde, no expansion needed");
         Some(path.to_path_buf()) // Path does not start with tilde, return as is
     }
 }
