@@ -162,7 +162,9 @@ impl SessionManager {
 
         let mut new_session_cmd = NewSession::new();
         new_session_cmd = new_session_cmd.session_name(session_name);
-        new_session_cmd = new_session_cmd.start_directory(start_directory.to_string_lossy().as_ref());
+        // Bind the Cow<'_, str> to a variable to extend its lifetime
+        let start_dir_cow = start_directory.to_string_lossy();
+        new_session_cmd = new_session_cmd.start_directory(start_dir_cow.as_ref());
 
         if self.is_inside_tmux_session() {
             new_session_cmd = new_session_cmd.detached();
