@@ -77,7 +77,7 @@ impl<'a> DirectoryScanner<'a> {
         is_explicitly_added: bool, // New flag
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
-    ) {
+    ) -> Result<()> { // Changed return type
         let candidate_span = span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
         let _enter = candidate_span.enter();
 
@@ -97,7 +97,7 @@ impl<'a> DirectoryScanner<'a> {
             Ok(p) => p,
             Err(e) => {
                 warn!(original_path = %original_path.display(), error = %e, "Could not canonicalize path, skipping");
-                return;
+                return Ok(()); // Changed to Ok(())
             }
         };
 
@@ -105,21 +105,21 @@ impl<'a> DirectoryScanner<'a> {
         // This handles cases where original_path might be a symlink to a file.
         if !resolved_path.is_dir() {
             debug!(original_path = %original_path.display(), resolved_path = %resolved_path.display(), "Skipping as resolved path is not a directory");
-            return;
+            return Ok(()); // Changed to Ok(())
         }
         
         debug!(original = %original_path.display(), resolved = %resolved_path.display(), "Path resolved");
 
         if processed_resolved_paths.contains(&resolved_path) {
             debug!(path = %resolved_path.display(), "Skipping duplicate resolved path");
-            return;
+            return Ok(()); // Changed to Ok(())
         }
 
         for pattern in &self.config.exclude_patterns {
             if pattern.is_match(original_path.to_string_lossy().as_ref()) // Check original path against exclusions
                 || pattern.is_match(resolved_path.to_string_lossy().as_ref()) { // Check resolved path
                 debug!(path = %resolved_path.display(), pattern = %pattern, "Skipping excluded path");
-                return;
+                return Ok(()); // Changed to Ok(())
             }
         }
         
@@ -137,7 +137,7 @@ impl<'a> DirectoryScanner<'a> {
 
         if is_hidden_by_name && !is_explicitly_added {
             debug!(name = %basename_of_resolved_path, path = %resolved_path.display(), "Skipping hidden directory (not explicitly added)");
-            return;
+            return Ok(()); // Changed to Ok(())
         }
 
         if is_git_repository(&resolved_path) {
@@ -164,7 +164,7 @@ impl<'a> DirectoryScanner<'a> {
                         let mut add_repo_entry_as_git_repository = true;
 
                         if repo.is_bare() {
-                            if container_detector::is_bare_repo_worktree_exclusive_container(&resolved_path, &repo) {
+                            if container_detector::is_bare_repo_worktree_exclusive_container(&resolved_path, &repo)? { // Added ?
                                 debug!(path = %resolved_path.display(), "Identified as a bare repo worktree exclusive container. Skipping direct entry for the container itself, but its worktrees will be listed.");
                                 add_repo_entry_as_git_repository = false;
                                 // Do NOT add to processed_resolved_paths here for the container itself.
@@ -227,27 +227,28 @@ impl<'a> DirectoryScanner<'a> {
                 Err(e) => {
                     warn!(path = %resolved_path.display(), error = %e, "Failed to open path as Git repository despite initial check, treating as plain");
                     // Before adding as plain, check if it's a worktree container
-                    if container_detector::check_if_worktree_container(&resolved_path) {
+                    if container_detector::check_if_worktree_container(&resolved_path)? { // Added ?
                         debug!(path = %resolved_path.display(), "Identified as a Git worktree container (after failing to open as repo), skipping");
-                        return;
+                        return Ok(()); // Changed to Ok(())
                     }
                     self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
                 }
             }
         } else { // Not a Git repository (is_git_repository(&resolved_path) returned false)
             // Check if it's a GitWorktreeContainer before treating as plain
-            if container_detector::check_if_worktree_container(&resolved_path) {
+            if container_detector::check_if_worktree_container(&resolved_path)? { // Added ?
                 debug!(path = %resolved_path.display(), "Identified as a Git worktree container, skipping");
                 // Do not add to entries, effectively excluding it.
                 // We also don't add to processed_resolved_paths here, as it's not an "entry".
                 // If this path were encountered again via a different original_path (e.g. another symlink),
                 // it would be re-evaluated, which is fine.
-                return;
+                return Ok(()); // Changed to Ok(())
             } else {
                 // If not a container, then it's a plain directory
                 self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
             }
         }
+        Ok(()) // Added Ok(()) for successful completion
     }
     
     // Helper function to add plain directory entries
@@ -279,7 +280,7 @@ impl<'a> DirectoryScanner<'a> {
 
     // scan function remains the same as it calls process_path_candidate
     // ... (scan function definition) ...
-    pub fn scan(&self) -> Vec<DirectoryEntry> {
+    pub fn scan(&self) -> Result<Vec<DirectoryEntry>> { // Changed return type
         let scan_span = span!(Level::INFO, "directory_scan");
         let _enter = scan_span.enter();
 
@@ -328,7 +329,7 @@ impl<'a> DirectoryScanner<'a> {
                 // A more optimized way would be to use entry_result.path() as potentially pre-resolved.
                 // However, fs::canonicalize is robust.
                 let path_from_walkdir = entry_result.path().to_path_buf();
-                self.process_path_candidate(path_from_walkdir, false, &mut entries, &mut processed_resolved_paths); // Set is_explicitly_added to false
+                self.process_path_candidate(path_from_walkdir, false, &mut entries, &mut processed_resolved_paths)?; // Added ?
             }
         }
 
@@ -345,12 +346,12 @@ impl<'a> DirectoryScanner<'a> {
                 }
             };
             debug!(expanded_path = %original_path.display(), "Expanded additional path");
-            self.process_path_candidate(original_path, true, &mut entries, &mut processed_resolved_paths); // Set is_explicitly_added to true
+            self.process_path_candidate(original_path, true, &mut entries, &mut processed_resolved_paths)?; // Added ?
         }
 
         info!(count = entries.len(), "Directory scan complete");
         debug!(final_entries = ?entries, "Final list of directory entries");
-        entries
+        Ok(entries) // Changed to Ok(entries)
     }
 }
 

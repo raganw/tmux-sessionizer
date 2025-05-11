@@ -45,7 +45,7 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
     // 2. Create a DirectoryScanner instance and scan directories
     let scanner = DirectoryScanner::new(&config);
     tracing::info!("Starting directory scan via main...");
-    let scanned_entries = scanner.scan();
+    let scanned_entries = scanner.scan()?; // Added ?
     tracing::info!("Directory scan complete. Found {} entries.", scanned_entries.len());
 
     // 3. Initialize FuzzyFinder
