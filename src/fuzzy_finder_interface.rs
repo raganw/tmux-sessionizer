@@ -382,7 +382,7 @@ mod tests {
     fn test_select_with_empty_entries_returns_ok_none() {
         let finder = FuzzyFinder::new();
         let entries = Vec::new();
-        let result = finder.select(entries);
+        let result = finder.select(&entries);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
