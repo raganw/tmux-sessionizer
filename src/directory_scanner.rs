@@ -90,21 +90,23 @@ impl<'a> DirectoryScanner<'a> {
     }
 
     /// Checks if the given path, which is known to be a bare Git repository,
-    /// serves primarily as an exclusive container for its own worktrees.
+    /// also serves as a container for its own worktrees.
     ///
-    /// An exclusive container has direct children that are:
-    /// 1. The `.git` file/directory that defines the container itself as a repo.
-    /// 2. The actual bare repository directory (if different from the container path, e.g., `container/.git` points to `container/actual_bare.git`).
-    /// 3. Git worktrees whose main repository is this bare repository.
-    /// It must contain at least one such worktree and no other files or non-qualifying directories at its top level.
+    /// Under the relaxed definition, this is true if the `container_candidate_path` has at least one
+    /// direct child subdirectory that is a Git worktree belonging to this specific bare repository.
+    /// Other files or non-qualifying subdirectories within `container_candidate_path` do not prevent it
+    /// from being considered a container, as long as the worktree condition is met.
     ///
-    /// Returns `true` if it's an exclusive worktree container for its own bare repo, `false` otherwise.
+    /// The `bare_repo` argument is the `Repository` object associated with `container_candidate_path`
+    /// (which means `bare_repo.path()` gives the path to the actual bare Git directory).
+    ///
+    /// Returns `true` if it contains at least one qualifying worktree child, `false` otherwise.
     fn is_bare_repo_worktree_exclusive_container(&self, container_candidate_path: &Path, bare_repo: &Repository) -> bool {
         let container_check_span = span!(Level::DEBUG, "is_bare_repo_worktree_exclusive_container", path = %container_candidate_path.display());
         let _enter = container_check_span.enter();
+        // Removed: all_children_are_qualifying_or_ignored flag. We only care about finding at least one worktree.
 
         let mut worktree_children_count = 0;
-        let mut all_children_are_qualifying_or_ignored = true;
 
         let canonical_bare_repo_dotgit_path = match fs::canonicalize(bare_repo.path()) {
             Ok(p) => p,
@@ -134,8 +136,8 @@ impl<'a> DirectoryScanner<'a> {
                                 Ok(p) => p,
                                 Err(e) => {
                                     warn!(child = %child_path.display(), error = %e, "Could not canonicalize child path, assuming not a qualifying worktree container child.");
-                                    all_children_are_qualifying_or_ignored = false;
-                                    break;
+                                    // Relaxed: Continue checking other children
+                                    continue;
                                 }
                             };
 
@@ -150,15 +152,15 @@ impl<'a> DirectoryScanner<'a> {
                                 Ok(ft) => ft,
                                 Err(e) => {
                                     warn!(child = %child_path.display(), error = %e, "Could not get file type for child, assuming not a qualifying worktree container child.");
-                                    all_children_are_qualifying_or_ignored = false;
-                                    break;
+                                    // Relaxed: Continue checking other children
+                                    continue;
                                 }
                             };
 
                             if child_file_type.is_file() {
-                                debug!(child = %child_path.display(), "Child is a file, parent not an exclusive bare repo worktree container.");
-                                all_children_are_qualifying_or_ignored = false;
-                                break;
+                                debug!(child = %child_path.display(), "Child is a file, not a worktree. Continuing search for worktrees.");
+                                // Relaxed: This file is permissible. Continue checking other entries.
+                                continue;
                             }
 
                             if child_file_type.is_dir() { // Symlinks to dirs are fine if they are worktrees
@@ -174,45 +176,45 @@ impl<'a> DirectoryScanner<'a> {
                                                                 worktree_children_count += 1;
                                                             } else {
                                                                 debug!(child_worktree = %canonical_child_path.display(), main_repo = %canonical_wt_main_repo_path.display(), expected_main_repo = %canonical_bare_repo_dotgit_path.display(), "Child worktree belongs to a different main repo.");
-                                                                all_children_are_qualifying_or_ignored = false;
-                                                                break;
+                                                                // Relaxed: Continue checking other children
+                                                                continue;
                                                             }
                                                         }
                                                         Err(e) => {
                                                             warn!(wt_main_repo_path = %wt_main_repo_path.display(), error = %e, "Failed to canonicalize worktree's main repo path.");
-                                                            all_children_are_qualifying_or_ignored = false;
-                                                            break;
+                                                            // Relaxed: Continue checking other children
+                                                            continue;
                                                         }
                                                     }
                                                 }
                                                 Err(e) => { // Failed to get main repo path for child worktree
                                                     warn!(child_worktree = %canonical_child_path.display(), error = %e, "Failed to get main repository path for worktree child.");
-                                                    all_children_are_qualifying_or_ignored = false;
-                                                    break;
+                                                    // Relaxed: Continue checking other children
+                                                    continue;
                                                 }
                                             }
                                         } else { // Child is a Git repo, but not a worktree
                                             debug!(child = %canonical_child_path.display(), "Child is a Git repository but not a worktree.");
-                                            all_children_are_qualifying_or_ignored = false;
-                                            break;
+                                            // Relaxed: Continue checking other children
+                                            continue;
                                         }
                                     }
                                     Err(_) => { // Child is not a Git repository at all
                                         debug!(child = %canonical_child_path.display(), "Child is not a Git repository.");
-                                        all_children_are_qualifying_or_ignored = false;
-                                        break;
+                                        // Relaxed: Continue checking other children
+                                        continue;
                                     }
                                 }
                             } else { // Neither file, dir, nor symlink to dir (symlink to file would have been caught by child_file_type.is_file() if symlink followed)
                                 debug!(child = %child_path.display(), "Child is of unexpected type.");
-                                all_children_are_qualifying_or_ignored = false;
-                                break;
+                                // Relaxed: Continue checking other children
+                                continue;
                             }
                         }
                         Err(e) => { // Error reading a specific directory entry
                             warn!(path = %container_candidate_path.display(), error = %e, "Error iterating directory entry.");
-                            all_children_are_qualifying_or_ignored = false;
-                            break;
+                            // Relaxed: Continue checking other children, though this might indicate a broader issue.
+                            continue;
                         }
                     }
                 }
@@ -223,11 +225,11 @@ impl<'a> DirectoryScanner<'a> {
             }
         }
 
-        let is_container = all_children_are_qualifying_or_ignored && worktree_children_count > 0;
+        let is_container = worktree_children_count > 0;
         if is_container {
-            debug!(path = %container_candidate_path.display(), worktree_count = worktree_children_count, "Path IS an exclusive bare repo worktree container.");
+            debug!(path = %container_candidate_path.display(), worktree_count = worktree_children_count, "Path IS a bare repo worktree container (relaxed check).");
         } else {
-            debug!(path = %container_candidate_path.display(), all_children_ok = all_children_are_qualifying_or_ignored, worktree_count = worktree_children_count, "Path is NOT an exclusive bare repo worktree container.");
+            debug!(path = %container_candidate_path.display(), worktree_count = worktree_children_count, "Path is NOT a bare repo worktree container (relaxed check): no qualifying worktree children found.");
         }
         is_container
     }
