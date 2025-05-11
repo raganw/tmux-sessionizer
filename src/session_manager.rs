@@ -305,7 +305,7 @@ mod tests {
         // The unwrap_or_else(|| OsStr::new("")) handles the None case.
         // If item_path.file_name() somehow yields Some(""), it should become "default_session".
         // This test is more conceptual for the internal logic.
-        let manager = SessionManager::new();
+        let _manager = SessionManager::new();
         // A path like "." might have file_name() as ".".
         // A path like "" is invalid.
         // Let's trust the `if item_basename.is_empty()` check.
