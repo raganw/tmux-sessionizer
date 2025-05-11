@@ -100,7 +100,7 @@ impl SessionManager {
                 }
                 // If it's not the specific "no server" message, or a different type of error, propagate it.
                 debug!("Error while checking server status: {}", e);
-                Err(e) // Propagate other errors (already AppError or convertible)
+                Err(e.into()) // Convert to AppError before returning
             }
         }
     }
@@ -135,7 +135,7 @@ impl SessionManager {
                     }
                 }
                 debug!("Error while checking for session '{}': {}", session_name, e);
-                Err(e) // Propagate other errors
+                Err(e.into()) // Convert to AppError before returning
             }
         }
     }
@@ -182,7 +182,7 @@ impl SessionManager {
 
         Tmux::new().command(new_session_cmd).output().map(|_| ()).map_err(|e| {
             error!("Failed to create new session '{}' at path '{}': {:?}", session_name, start_directory.display(), e);
-            e
+            AppError::from(e)
         })
     }
 
@@ -200,13 +200,13 @@ impl SessionManager {
             let switch_client_cmd = SwitchClient::new().target_session(session_name);
             Tmux::new().command(switch_client_cmd).output().map(|_| ()).map_err(|e| {
                 error!("Failed to switch client to session '{}': {:?}", session_name, e);
-                e
+                AppError::from(e)
             })
         } else {
             let attach_session_cmd = AttachSession::new().target_session(session_name);
             Tmux::new().command(attach_session_cmd).output().map(|_| ()).map_err(|e| {
                 error!("Failed to attach to session '{}': {:?}", session_name, e);
-                e
+                AppError::from(e)
             })
         }
     }

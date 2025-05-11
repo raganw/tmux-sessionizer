@@ -86,13 +86,7 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
     let list_span = span!(Level::DEBUG, "list_linked_worktrees", repo_path = %repo_path.display());
     let _enter = list_span.enter();
 
-    let repo = match Repository::open(repo_path) {
-        Ok(r) => r,
-        Err(e) => {
-            error!(error = %e, "Failed to open repository to list worktrees");
-            return Err(e);
-        }
-    };
+    let repo = Repository::open(repo_path)?;
 
     let worktrees = repo.worktrees()?;
     debug!(count = worktrees.len(), "Found linked worktrees (raw count from git2)");
@@ -132,13 +126,7 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
     let path_span = span!(Level::DEBUG, "get_main_repository_path", path_in_repo = %path_in_repo.display());
     let _enter = path_span.enter();
 
-    let repo = match Repository::open(path_in_repo) {
-        Ok(r) => r,
-        Err(e) => {
-            error!(error = %e, "Failed to open repository to find main repository path for {}", path_in_repo.display());
-            return Err(e);
-        }
-    };
+    let repo = Repository::open(path_in_repo)?;
 
     let main_path_candidate = if repo.is_worktree() {
         // If it's a worktree, repo.commondir() is the .git dir of the main repository.
@@ -160,7 +148,7 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
             }
             Err(e) => {
                 error!(commondir_path = %common_dir.display(), error = %e, "Failed to open repository at worktree's common_dir to determine if bare");
-                return Err(e);
+                return Err(e.into());
             }
         }
     } else if repo.is_bare() {
