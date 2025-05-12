@@ -156,9 +156,13 @@ mod tests {
         branch_name: &str, // Branch must exist
     ) -> git2::Worktree {
         let mut opts = WorktreeAddOptions::new();
-        let reference = bare_repo.find_reference(&format!("refs/heads/{branch_name}")).unwrap();
+        let reference = bare_repo
+            .find_reference(&format!("refs/heads/{branch_name}"))
+            .unwrap();
         opts.reference(Some(&reference));
-        bare_repo.worktree(worktree_name, worktree_path, Some(&opts)).expect("Failed to add worktree to bare repo")
+        bare_repo
+            .worktree(worktree_name, worktree_path, Some(&opts))
+            .expect("Failed to add worktree to bare repo")
     }
 
     #[test]
@@ -278,7 +282,9 @@ mod tests {
 
         // Create a branch pointing to the initial commit
         let branch_name = "main";
-        bare_repo.branch(branch_name, &initial_commit, false).unwrap();
+        bare_repo
+            .branch(branch_name, &initial_commit, false)
+            .unwrap();
 
         // Add a worktree
         let base_wt_temp_dir = tempdir().unwrap();
@@ -295,7 +301,6 @@ mod tests {
             fs::canonicalize(&wt_path).unwrap()
         );
     }
-
 
     #[test]
     fn test_get_main_repository_path_for_standard_repo() {
@@ -371,18 +376,27 @@ mod tests {
         let tree = bare_repo.find_tree(tree_id).unwrap();
         let initial_commit_oid = bare_repo
             .commit(
-                None, &signature, &signature, "Initial commit for bare repo", &tree, &[],
+                None,
+                &signature,
+                &signature,
+                "Initial commit for bare repo",
+                &tree,
+                &[],
             )
             .expect("Failed to create initial commit in bare repo");
         let initial_commit = bare_repo.find_commit(initial_commit_oid).unwrap();
 
         // Create a branch pointing to the initial commit
         let branch_name = "main";
-        bare_repo.branch(branch_name, &initial_commit, false).unwrap();
+        bare_repo
+            .branch(branch_name, &initial_commit, false)
+            .unwrap();
 
         // Add a worktree
         let base_wt_temp_dir = tempdir().unwrap();
-        let wt_path = base_wt_temp_dir.path().join("bare_worktree_for_main_path_test");
+        let wt_path = base_wt_temp_dir
+            .path()
+            .join("bare_worktree_for_main_path_test");
         let wt_name = "bare-feature-main-path";
         add_worktree_to_bare(&bare_repo, wt_name, &wt_path, branch_name);
 
