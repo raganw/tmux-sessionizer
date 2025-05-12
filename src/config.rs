@@ -182,27 +182,29 @@ impl Config {
     /// parsing command-line arguments, and merging them.
     /// Also performs validation.
     pub fn new() -> Result<Self, ConfigError> {
-        debug!("Setting up configuration");
+        // Use eprintln! here because tracing is not yet initialized
+        eprintln!("[TRACE] Setting up configuration");
         let cli_args = CliArgs::parse();
-        debug!(parsed_cli_args = ?cli_args, "Parsed command line arguments");
+        eprintln!("[DEBUG] Parsed command line arguments: {:?}", cli_args);
 
         // Load configuration from file
         let file_config = match load_config_file() {
             Ok(fc) => {
-                trace!(file_config_loaded = ?fc.is_some(), "Configuration file load attempt completed.");
+                eprintln!("[TRACE] Configuration file load attempt completed. Loaded: {}", fc.is_some());
                 fc
             }
             Err(e) => {
-                error!(error = %e, "Failed to load or parse the configuration file. This is a fatal configuration error.");
+                // Use eprintln! for errors occurring before tracing is set up
+                eprintln!("[ERROR] Failed to load or parse the configuration file: {}. This is a fatal configuration error.", e);
                 return Err(e);
             }
         };
 
         let config = Self::build(file_config, cli_args)?;
-        debug!(final_config = ?config, "Constructed final configuration");
+        eprintln!("[DEBUG] Constructed final configuration: {:?}", config);
 
         // Validate paths after merging and expansion
-        config.validate()?;
+        config.validate()?; // Validation logs internally using tracing, but that's okay if it happens after setup
 
         Ok(config)
     }
