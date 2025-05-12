@@ -4,9 +4,9 @@
 // and the main `Config` struct that holds the application's runtime settings.
 
 use clap::Parser;
+use regex::Regex;
 use serde::Deserialize;
 use serde_derive::Deserialize;
-use regex::Regex;
 use std::path::PathBuf;
 use tracing::debug;
 
