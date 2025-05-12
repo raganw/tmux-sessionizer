@@ -391,13 +391,13 @@ mod tests {
     #[test]
     fn test_check_if_worktree_container_valid_two_worktrees() {
         let main_repo_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_dir.path());
+        let main_repo = init_bare_repo(main_repo_dir.path());
 
         let container_dir = tempdir().unwrap();
         let wt1_path = container_dir.path().join("wt1");
         let wt2_path = container_dir.path().join("wt2");
-        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
-        add_worktree_to_bare(&_main_repo, "wt2", &wt2_path);
+        add_worktree_to_bare(&main_repo, "wt1", &wt1_path);
+        add_worktree_to_bare(&main_repo, "wt2", &wt2_path);
 
         assert!(check_if_worktree_container(container_dir.path()).unwrap());
     }
@@ -405,11 +405,11 @@ mod tests {
     #[test]
     fn test_check_if_worktree_container_one_worktree() {
         let main_repo_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_dir.path());
+        let main_repo = init_bare_repo(main_repo_dir.path());
 
         let container_dir = tempdir().unwrap();
         let wt1_path = container_dir.path().join("wt1");
-        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        add_worktree_to_bare(&main_repo, "wt1", &wt1_path);
 
         assert!(check_if_worktree_container(container_dir.path()).unwrap());
     }
@@ -423,11 +423,11 @@ mod tests {
     #[test]
     fn test_check_if_worktree_container_with_file() {
         let main_repo_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_dir.path());
+        let main_repo = init_bare_repo(main_repo_dir.path());
 
         let container_dir = tempdir().unwrap();
         let wt1_path = container_dir.path().join("wt1");
-        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        add_worktree_to_bare(&main_repo, "wt1", &wt1_path);
         File::create(container_dir.path().join("some_file.txt")).unwrap();
 
         assert!(!check_if_worktree_container(container_dir.path()).unwrap());
@@ -436,11 +436,11 @@ mod tests {
     #[test]
     fn test_check_if_worktree_container_with_plain_dir() {
         let main_repo_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_dir.path());
+        let main_repo = init_bare_repo(main_repo_dir.path());
 
         let container_dir = tempdir().unwrap();
         let wt1_path = container_dir.path().join("wt1");
-        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        add_worktree_to_bare(&main_repo, "wt1", &wt1_path);
         fs::create_dir(container_dir.path().join("plain_dir")).unwrap();
 
         assert!(!check_if_worktree_container(container_dir.path()).unwrap());
@@ -449,11 +449,11 @@ mod tests {
     #[test]
     fn test_check_if_worktree_container_with_non_worktree_repo() {
         let main_repo_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_dir.path());
+        let main_repo = init_bare_repo(main_repo_dir.path());
 
         let container_dir = tempdir().unwrap();
         let wt1_path = container_dir.path().join("wt1");
-        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        add_worktree_to_bare(&main_repo, "wt1", &wt1_path);
         // Helper to init standard repo (not bare)
         Repository::init(container_dir.path().join("other_repo"))
             .expect("Failed to init other_repo");
@@ -464,15 +464,15 @@ mod tests {
     #[test]
     fn test_check_if_worktree_container_different_main_repos() {
         let main_repo_a_dir = tempdir().unwrap();
-        let _main_repo_a = init_bare_repo(main_repo_a_dir.path());
+        let main_repo_a = init_bare_repo(main_repo_a_dir.path());
         let main_repo_b_dir = tempdir().unwrap();
-        let _main_repo_b = init_bare_repo(main_repo_b_dir.path());
+        let main_repo_b = init_bare_repo(main_repo_b_dir.path());
 
         let container_dir = tempdir().unwrap();
         let wt_a_path = container_dir.path().join("wt_a");
         let wt_b_path = container_dir.path().join("wt_b");
-        add_worktree_to_bare(&_main_repo_a, "wt_a", &wt_a_path);
-        add_worktree_to_bare(&_main_repo_b, "wt_b", &wt_b_path);
+        add_worktree_to_bare(&main_repo_a, "wt_a", &wt_a_path);
+        add_worktree_to_bare(&main_repo_b, "wt_b", &wt_b_path);
 
         assert!(!check_if_worktree_container(container_dir.path()).unwrap());
     }
@@ -481,11 +481,11 @@ mod tests {
     #[cfg(unix)]
     fn test_check_if_worktree_container_with_symlink_to_worktree() {
         let main_repo_temp_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_temp_dir.path());
+        let main_repo = init_bare_repo(main_repo_temp_dir.path());
 
         let actual_wt_parent_dir = tempdir().unwrap();
         let actual_wt_physical_path = actual_wt_parent_dir.path().join("actual_wt1_loc");
-        add_worktree_to_bare(&_main_repo, "actual_wt1", &actual_wt_physical_path);
+        add_worktree_to_bare(&main_repo, "actual_wt1", &actual_wt_physical_path);
 
         let container_dir = tempdir().unwrap();
         let symlink_path = container_dir.path().join("sym_wt1");
@@ -498,11 +498,11 @@ mod tests {
     #[cfg(unix)]
     fn test_check_if_worktree_container_with_symlink_to_file() {
         let main_repo_temp_dir = tempdir().unwrap();
-        let _main_repo = init_bare_repo(main_repo_temp_dir.path());
+        let main_repo = init_bare_repo(main_repo_temp_dir.path());
 
         let container_dir = tempdir().unwrap();
         let wt1_path = container_dir.path().join("wt1");
-        add_worktree_to_bare(&_main_repo, "wt1", &wt1_path);
+        add_worktree_to_bare(&main_repo, "wt1", &wt1_path);
 
         let file_target_temp_dir = tempdir().unwrap();
         let file_path = file_target_temp_dir.path().join("target_file.txt");
