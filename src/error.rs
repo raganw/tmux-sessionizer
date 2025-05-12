@@ -15,11 +15,11 @@ use thiserror::Error;
 pub enum AppError {
     /// Errors related to application configuration loading or validation.
     #[error("Configuration error: {0}")]
-    Config(String),
+    _Config(String),
 
     /// Errors encountered during directory scanning or processing.
     #[error("Directory scanning error: {0}")]
-    Scanner(String),
+    _Scanner(String),
 
     /// Errors originating from Git operations (e.g., opening repositories, listing worktrees).
     /// Wraps `git2::Error`.

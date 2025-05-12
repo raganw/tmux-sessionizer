@@ -47,7 +47,7 @@ pub struct DirectoryEntry {
     pub resolved_path: PathBuf,
     /// The name used for display purposes, often the directory's basename or a formatted name for worktrees.
     pub display_name: String,
-    /// The type of the directory (Plain, GitRepository, GitWorktree).
+    /// The type of the directory (Plain, `GitRepository`, `GitWorktree`).
     pub entry_type: DirectoryType,
     /// For worktrees, this holds the canonical path to the main repository's working directory or bare repo path.
     pub parent_path: Option<PathBuf>,
@@ -612,7 +612,7 @@ mod tests {
             DirectoryType::Plain => assert_eq!(expected_type, "Plain"),
             DirectoryType::GitRepository => assert_eq!(expected_type, "GitRepository"),
             DirectoryType::GitWorktreeContainer => {
-                assert_eq!(expected_type, "GitWorktreeContainer")
+                assert_eq!(expected_type, "GitWorktreeContainer");
             } // This type might not be directly asserted often
             DirectoryType::GitWorktree {
                 main_worktree_path: _,
