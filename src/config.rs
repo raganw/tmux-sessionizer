@@ -499,4 +499,247 @@ mod tests {
     // TODO: Add tests for `validate()` method, potentially mocking `fs::metadata`
     // or using temp directories. For now, assuming `validate_path_is_directory` is tested elsewhere
     // or relying on integration tests for full validation flow.
+
+    // --- Tests for load_config_file (requires filesystem interaction) ---
+
+    use tempfile::tempdir;
+    use std::fs::{self, File};
+    use std::io::Write;
+
+    // Helper to create a realistic config structure within a temp dir
+    fn setup_temp_config_dir(
+        base_dir: &tempfile::TempDir,
+        create_subdir: bool,
+        create_file: bool,
+        file_content: Option<&str>,
+    ) -> PathBuf {
+        let mut config_path = base_dir.path().to_path_buf();
+        config_path.push("tmux-sessionizer");
+
+        if create_subdir {
+            fs::create_dir(&config_path).expect("Failed to create temp config subdir");
+            if create_file {
+                config_path.push("tmux-sessionizer.toml");
+                let mut file = File::create(&config_path).expect("Failed to create temp config file");
+                if let Some(content) = file_content {
+                    writeln!(file, "{}", content).expect("Failed to write to temp config file");
+                }
+            }
+        }
+        // Return the path to the *expected* config file, even if not created
+        else if create_file {
+             // If subdir not created, but file creation requested, return path where file *would* be
+             config_path.push("tmux-sessionizer.toml");
+        }
+
+        base_dir.path().to_path_buf() // Return the base path for load_config_from_dir
+    }
+
+    // Test version of load_config_file that takes the base config dir path
+    // Mirrors the logic of the real load_config_file but uses the provided path
+    fn load_config_from_dir(base_config_dir: &PathBuf) -> std::result::Result<Option<FileConfig>, ConfigError> {
+        let mut config_path = base_config_dir.clone();
+        config_path.push("tmux-sessionizer"); // Application-specific subdirectory
+        config_path.push("tmux-sessionizer.toml"); // The config file itself
+
+        debug!(path = %config_path.display(), "Attempting to load configuration from file (test helper)");
+
+        if !config_path.exists() {
+            info!(path = %config_path.display(), "Configuration file not found (test helper).");
+            return Ok(None);
+        }
+
+        info!(path = %config_path.display(), "Configuration file found. Reading and parsing (test helper).");
+        let content = match fs::read_to_string(&config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                error!(path = %config_path.display(), error = %e, "Failed to read configuration file content (test helper).");
+                return Err(ConfigError::FileReadError { path: config_path, source: e });
+            }
+        };
+
+        trace!(file_content = %content, "Successfully read configuration file content (test helper)");
+        match toml::from_str::<FileConfig>(&content) {
+            Ok(parsed_config) => {
+                info!(path = %config_path.display(), "Successfully parsed configuration file (test helper).");
+                Ok(Some(parsed_config))
+            }
+            Err(e) => {
+                error!(path = %config_path.display(), error = %e, "Failed to parse TOML configuration from file (test helper).");
+                Err(ConfigError::FileParseError { path: config_path, source: e })
+            }
+        }
+    }
+
+
+    #[test]
+    fn test_load_config_file_does_not_exist() {
+        let temp_dir = tempdir().unwrap();
+        // Setup: Create the subdir, but not the file
+        let base_path = setup_temp_config_dir(&temp_dir, true, false, None);
+        let result = load_config_from_dir(&base_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_load_config_subdir_does_not_exist() {
+        let temp_dir = tempdir().unwrap();
+        // Setup: Don't create the subdir or the file
+        let base_path = setup_temp_config_dir(&temp_dir, false, false, None);
+        let result = load_config_from_dir(&base_path);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none()); // Should still be Ok(None) as the file path won't exist
+    }
+
+
+    #[test]
+    fn test_load_config_valid_file() {
+        let temp_dir = tempdir().unwrap();
+        let content = r#"
+            search_paths = ["/valid/path", "~/valid/tilde/path"]
+            additional_paths = ["/extra/path"]
+            exclude_patterns = ["^ignore_this", ".*\.log"]
+        "#;
+        let base_path = setup_temp_config_dir(&temp_dir, true, true, Some(content));
+        let result = load_config_from_dir(&base_path);
+
+        assert!(result.is_ok());
+        let file_config = result.unwrap();
+        assert!(file_config.is_some());
+        let config = file_config.unwrap();
+
+        assert_eq!(config.search_paths, Some(vec!["/valid/path".to_string(), "~/valid/tilde/path".to_string()]));
+        assert_eq!(config.additional_paths, Some(vec!["/extra/path".to_string()]));
+        assert_eq!(config.exclude_patterns, Some(vec!["^ignore_this".to_string(), ".*\\.log".to_string()]));
+    }
+
+    #[test]
+    fn test_load_config_malformed_toml() {
+        let temp_dir = tempdir().unwrap();
+        let content = r#"
+            search_paths = ["/valid/path" # Missing comma and closing bracket
+            additional_paths = ["/extra/path"]
+        "#;
+        let base_path = setup_temp_config_dir(&temp_dir, true, true, Some(content));
+        let result = load_config_from_dir(&base_path);
+
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            ConfigError::FileParseError { .. } => {} // Expected error
+            other => panic!("Expected FileParseError, got {:?}", other),
+        }
+    }
+
+     #[test]
+    fn test_load_config_unknown_field() {
+        let temp_dir = tempdir().unwrap();
+        // FileConfig uses #[serde(deny_unknown_fields)]
+        let content = r#"
+            search_paths = ["/valid/path"]
+            unknown_field = "should cause error"
+        "#;
+        let base_path = setup_temp_config_dir(&temp_dir, true, true, Some(content));
+        let result = load_config_from_dir(&base_path);
+
+        assert!(result.is_err(), "Expected error due to unknown field, but got Ok: {:?}", result.ok());
+        match result.err().unwrap() {
+            ConfigError::FileParseError { .. } => {} // Expected error due to deny_unknown_fields
+            other => panic!("Expected FileParseError (due to unknown field), got {:?}", other),
+        }
+    }
+
+    // --- Tests for Config::validate ---
+
+    #[test]
+    fn test_validate_all_paths_valid() {
+        let temp_dir = tempdir().unwrap();
+        let valid_dir1 = temp_dir.path().join("dir1");
+        let valid_dir2 = temp_dir.path().join("dir2");
+        fs::create_dir(&valid_dir1).unwrap();
+        fs::create_dir(&valid_dir2).unwrap();
+
+        let config = Config {
+            search_paths: vec![valid_dir1.clone()],
+            additional_paths: vec![valid_dir2.clone()],
+            exclude_patterns: vec![],
+            debug_mode: false,
+            direct_selection: None,
+        };
+
+        let result = config.validate();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_path_does_not_exist() {
+        let temp_dir = tempdir().unwrap();
+        let non_existent_path = temp_dir.path().join("non_existent");
+
+        let config = Config {
+            search_paths: vec![non_existent_path.clone()],
+            additional_paths: vec![],
+            exclude_patterns: vec![],
+            debug_mode: false,
+            direct_selection: None,
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            ConfigError::InvalidPath(PathValidationError::DoesNotExist { path }) => {
+                assert_eq!(path, non_existent_path);
+            }
+            other => panic!("Expected DoesNotExist error, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_validate_path_is_file_not_directory() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("im_a_file.txt");
+        File::create(&file_path).unwrap().write_all(b"hello").unwrap();
+
+        let config = Config {
+            search_paths: vec![],
+            additional_paths: vec![file_path.clone()],
+            exclude_patterns: vec![],
+            debug_mode: false,
+            direct_selection: None,
+        };
+
+        let result = config.validate();
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            ConfigError::InvalidPath(PathValidationError::NotADirectory { path }) => {
+                assert_eq!(path, file_path);
+            }
+            other => panic!("Expected NotADirectory error, got {:?}", other),
+        }
+    }
+
+     #[test]
+    fn test_validate_mixed_valid_and_invalid_paths() {
+        let temp_dir = tempdir().unwrap();
+        let valid_dir = temp_dir.path().join("valid_dir");
+        let non_existent_path = temp_dir.path().join("non_existent");
+        fs::create_dir(&valid_dir).unwrap();
+
+        let config = Config {
+            search_paths: vec![valid_dir.clone()],
+            additional_paths: vec![non_existent_path.clone()], // This one is invalid
+            exclude_patterns: vec![],
+            debug_mode: false,
+            direct_selection: None,
+        };
+
+        let result = config.validate();
+        assert!(result.is_err()); // Should fail on the first invalid path encountered
+        match result.err().unwrap() {
+             ConfigError::InvalidPath(PathValidationError::DoesNotExist { path }) => {
+                assert_eq!(path, non_existent_path); // Error should be for the invalid path
+            }
+            other => panic!("Expected DoesNotExist error for the second path, got {:?}", other),
+        }
+    }
 }
