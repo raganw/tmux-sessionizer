@@ -48,7 +48,7 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
     );
 
     let mut result = Vec::new();
-    for wt_name_bytes in worktrees.iter() {
+    for wt_name_bytes in &worktrees {
         if let Some(name_str) = wt_name_bytes {
             let name = name_str.to_string();
             debug!(worktree_name = %name, "Processing worktree entry from list");
@@ -215,7 +215,7 @@ mod tests {
 
         let mut opts = WorktreeAddOptions::new();
         let worktree_specific_ref = repo
-            .find_reference(&format!("refs/heads/{}", worktree_branch_name))
+            .find_reference(&format!("refs/heads/{worktree_branch_name}"))
             .unwrap();
         opts.reference(Some(&worktree_specific_ref));
 
@@ -285,7 +285,7 @@ mod tests {
 
         let mut opts = WorktreeAddOptions::new();
         let worktree_specific_ref = repo
-            .find_reference(&format!("refs/heads/{}", worktree_branch_name))
+            .find_reference(&format!("refs/heads/{worktree_branch_name}"))
             .unwrap();
         opts.reference(Some(&worktree_specific_ref));
         // git2 will create wt_path

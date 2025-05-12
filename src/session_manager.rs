@@ -61,7 +61,7 @@ impl SessionManager {
             if parent_basename.is_empty() || parent_basename == "/" {
                 parent_basename = "default_parent".to_string();
             }
-            format!("{}_{}", parent_basename, item_basename)
+            format!("{parent_basename}_{item_basename}")
         } else {
             item_basename
         };
@@ -230,9 +230,8 @@ impl SessionManager {
                 .output()
                 .map(|_| ())
                 .map_err(|e| {
-                    let err_msg = format!(
-                        "Failed to switch client to session '{session_name}': {e}",
-                    );
+                    let err_msg =
+                        format!("Failed to switch client to session '{session_name}': {e}",);
                     error!("{}", err_msg);
                     AppError::Session(err_msg)
                 })

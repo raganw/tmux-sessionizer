@@ -162,46 +162,42 @@ pub fn check_if_worktree_container(path_to_check: &Path) -> Result<bool> {
                 break;
             }
 
-            match Repository::open(&canonical_child_path) {
-                Ok(repo) => {
-                    if repo.is_worktree() {
-                        // Use `?` to propagate error from get_main_repository_path
-                        // If it errors, it means this child cannot be confirmed, so the "all children" criteria fails.
-                        let main_repo_path_val =
-                            match git_repository_handler::get_main_repository_path(
-                                &canonical_child_path,
-                            ) {
-                                Ok(p) => p,
-                                Err(e) => {
-                                    warn!(child_worktree = %canonical_child_path.display(), error = %e, "Failed to get main repository path for worktree child. Not a valid container.");
-                                    all_children_are_qualifying_worktrees = false;
-                                    break;
-                                }
-                            };
-
-                        let current_main_repo_path = fs::canonicalize(&main_repo_path_val)?;
-
-                        if first_main_repo_path.is_none() {
-                            first_main_repo_path = Some(current_main_repo_path.clone());
-                            debug!(child_worktree = %canonical_child_path.display(), main_repo = %current_main_repo_path.display(), "First worktree found, setting common main repo path.");
-                        } else if first_main_repo_path.as_ref() != Some(&current_main_repo_path) {
-                            debug!(child_worktree = %canonical_child_path.display(), main_repo = %current_main_repo_path.display(), expected_main_repo = ?first_main_repo_path, "Worktree belongs to a different main repo, parent not a container.");
+            if let Ok(repo) = Repository::open(&canonical_child_path) {
+                if repo.is_worktree() {
+                    // Use `?` to propagate error from get_main_repository_path
+                    // If it errors, it means this child cannot be confirmed, so the "all children" criteria fails.
+                    let main_repo_path_val = match git_repository_handler::get_main_repository_path(
+                        &canonical_child_path,
+                    ) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            warn!(child_worktree = %canonical_child_path.display(), error = %e, "Failed to get main repository path for worktree child. Not a valid container.");
                             all_children_are_qualifying_worktrees = false;
                             break;
                         }
-                        worktree_children_count += 1;
-                    } else {
-                        debug!(child = %canonical_child_path.display(), "Child is a Git repository but not a worktree, parent not a container.");
+                    };
+
+                    let current_main_repo_path = fs::canonicalize(&main_repo_path_val)?;
+
+                    if first_main_repo_path.is_none() {
+                        first_main_repo_path = Some(current_main_repo_path.clone());
+                        debug!(child_worktree = %canonical_child_path.display(), main_repo = %current_main_repo_path.display(), "First worktree found, setting common main repo path.");
+                    } else if first_main_repo_path.as_ref() != Some(&current_main_repo_path) {
+                        debug!(child_worktree = %canonical_child_path.display(), main_repo = %current_main_repo_path.display(), expected_main_repo = ?first_main_repo_path, "Worktree belongs to a different main repo, parent not a container.");
                         all_children_are_qualifying_worktrees = false;
                         break;
                     }
-                }
-                Err(_) => {
-                    // Not a Git repository
-                    debug!(child = %canonical_child_path.display(), "Child is not a Git repository, parent not a worktree container.");
+                    worktree_children_count += 1;
+                } else {
+                    debug!(child = %canonical_child_path.display(), "Child is a Git repository but not a worktree, parent not a container.");
                     all_children_are_qualifying_worktrees = false;
                     break;
                 }
+            } else {
+                // Not a Git repository
+                debug!(child = %canonical_child_path.display(), "Child is not a Git repository, parent not a worktree container.");
+                all_children_are_qualifying_worktrees = false;
+                break;
             }
         } else {
             // Not a dir, file, or symlink (should be rare)

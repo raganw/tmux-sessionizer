@@ -63,7 +63,7 @@ impl<'a> DirectoryScanner<'a> {
             .file_name()
             .unwrap_or_default()
             .to_string_lossy();
-        let display_name = format!("[{}] {}", parent_basename, worktree_basename);
+        let display_name = format!("[{parent_basename}] {worktree_basename}");
 
         debug!(path = %resolved_wt_path.display(), main_repo = %main_repo_resolved_path.display(), name = %display_name, "Adding Git worktree entry");
         let worktree_entry = DirectoryEntry {
@@ -339,12 +339,11 @@ impl<'a> DirectoryScanner<'a> {
             let path_span = span!(Level::DEBUG, "process_search_root", config_path = %search_path_config_entry.display());
             let _path_enter = path_span.enter();
 
-            let search_path_base = match expand_tilde(search_path_config_entry) {
-                Some(p) => p,
-                None => {
-                    warn!(path = %search_path_config_entry.display(), "Could not expand tilde for search path, skipping");
-                    continue;
-                }
+            let search_path_base = if let Some(p) = expand_tilde(search_path_config_entry) {
+                p
+            } else {
+                warn!(path = %search_path_config_entry.display(), "Could not expand tilde for search path, skipping");
+                continue;
             };
             debug!(expanded_path = %search_path_base.display(), "Expanded search path");
 
@@ -363,7 +362,7 @@ impl<'a> DirectoryScanner<'a> {
                     if let Err(ref err_val) = e {
                         let io_error_string = err_val
                             .io_error()
-                            .map_or_else(|| "N/A".to_string(), |ioe| ioe.to_string());
+                            .map_or_else(|| "N/A".to_string(), std::string::ToString::to_string);
                         warn!(path = ?err_val.path(), error = %io_error_string, "Error walking directory child");
                     }
                     e.ok()
@@ -384,12 +383,11 @@ impl<'a> DirectoryScanner<'a> {
             let path_span = span!(Level::DEBUG, "process_additional_path", config_path = %additional_path_config_entry.display());
             let _path_enter = path_span.enter();
 
-            let original_path = match expand_tilde(additional_path_config_entry) {
-                Some(p) => p,
-                None => {
-                    warn!(path = %additional_path_config_entry.display(), "Could not expand tilde for additional path, skipping");
-                    continue;
-                }
+            let original_path = if let Some(p) = expand_tilde(additional_path_config_entry) {
+                p
+            } else {
+                warn!(path = %additional_path_config_entry.display(), "Could not expand tilde for additional path, skipping");
+                continue;
             };
             debug!(expanded_path = %original_path.display(), "Expanded additional path");
             self.process_path_candidate(
@@ -488,7 +486,7 @@ mod tests {
         let _ = init_bare_repo(&bare_repo_actual_path); // Initialize the bare repo
         fs::write(
             container_path.join(".git"),
-            format!("gitdir: {}", bare_repo_dir_name),
+            format!("gitdir: {bare_repo_dir_name}"),
         )
         .unwrap(); // Link .git file
 
@@ -547,7 +545,7 @@ mod tests {
         );
         assert_eq!(
             wt1_entry.unwrap().display_name,
-            format!("[{}] feature_a", container_name)
+            format!("[{container_name}] feature_a")
         );
 
         let wt2_entry = entries
@@ -567,7 +565,7 @@ mod tests {
         );
         assert_eq!(
             wt2_entry.unwrap().display_name,
-            format!("[{}] bugfix_b", container_name)
+            format!("[{container_name}] bugfix_b")
         );
 
         // The plain project should be an entry

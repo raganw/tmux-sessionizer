@@ -103,7 +103,7 @@ impl FuzzyFinder {
             // .preview(Some("")) // Enable preview window, command can be set
             // .delimiter(Some("\t")) // If Skim needs to parse fields internally
             .build()
-            .map_err(|e| AppError::Finder(format!("Failed to build Skim options: {}", e)))?;
+            .map_err(|e| AppError::Finder(format!("Failed to build Skim options: {e}")))?;
 
         // Create an item reader from the prepared input string
         let item_reader = SkimItemReader::default();
@@ -112,9 +112,7 @@ impl FuzzyFinder {
         // Run Skim and process the output
         // Skim::run_with returns Option<SkimOutput>
         let skim_output = Skim::run_with(&options, Some(items)).ok_or_else(|| {
-            AppError::Finder(
-                "Skim execution failed or was cancelled by user initially".to_string(),
-            )
+            AppError::Finder("Skim execution failed or was cancelled by user initially".to_string())
         })?;
         // If Skim::run_with returns None, it means skim was aborted (e.g. ESC) before selection loop started.
         // If it returns Some(output), then output.is_abort indicates if ESC was pressed during selection.
@@ -159,8 +157,7 @@ impl FuzzyFinder {
             Ok(Some(SelectedItem { display_name, path }))
         } else {
             Err(AppError::Finder(format!(
-                "Selected line from Skim has unexpected format (expected 'display\\tpath'): '{}'",
-                selected_line
+                "Selected line from Skim has unexpected format (expected 'display\\tpath'): '{selected_line}'"
             )))
         }
     }
@@ -331,7 +328,7 @@ impl FuzzyFinder {
             .filter(|e| {
                 e.resolved_path
                     .file_name()
-                    .map_or(false, |name| name == search_target_raw)
+                    .is_some_and(|name| name == search_target_raw)
             })
             .collect();
         if filename_matches.len() == 1 {
