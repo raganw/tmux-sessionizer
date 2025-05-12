@@ -1,0 +1,72 @@
+# Example configuration file for tmux-sessionizer
+#
+# This file allows you to customize the behavior of tmux-sessionizer,
+# such as specifying default search directories and exclusion patterns.
+#
+# The configuration file should be placed at:
+# ~/.config/tmux-sessionizer/tmux-sessionizer.toml
+
+# --- Search Paths ---
+#
+# `search_paths` defines the primary directories where tmux-sessionizer will look for projects.
+# These paths are scanned recursively up to a certain depth (currently hardcoded, but could be configurable).
+# Paths starting with '~' will be expanded to the user's home directory.
+#
+# Example: Search within ~/dev and ~/workspaces
+# search_paths = [
+#   "~/dev",
+#   "~/workspaces",
+# ]
+#
+# Example: Search only in a specific project directory
+# search_paths = ["/path/to/my/projects"]
+
+
+# --- Additional Paths ---
+#
+# `additional_paths` allows specifying extra directories to include in the scan.
+# These are treated similarly to `search_paths`. This can be useful for adding
+# temporary or less frequently accessed project locations without modifying the main search paths.
+# Paths starting with '~' will be expanded.
+#
+# Example: Include a specific client project directory
+# additional_paths = [
+#   "~/clients/project-x",
+#   "/mnt/shared/team-projects",
+# ]
+
+
+# --- Exclusion Patterns ---
+#
+# `exclude_patterns` is a list of regular expressions. Any directory whose *full path*
+# matches one of these patterns will be excluded from the results.
+# Use this to ignore common directories like node_modules, target, vendor, etc.,
+# or specific projects you don't want to appear in the list.
+#
+# Note: The patterns are matched against the absolute path.
+# Remember to escape special regex characters if needed (e.g., '.' should be '\.').
+#
+# Example: Exclude common build/dependency directories and hidden directories
+# exclude_patterns = [
+#   "/node_modules/", # Exclude node_modules anywhere in the path
+#   "/target/",       # Exclude Rust target directories
+#   "/vendor/",       # Exclude vendor directories (e.g., PHP Composer, Go)
+#   "/\.git/",        # Exclude the .git directory itself (though we mainly look for dirs containing .git)
+#   "/\.cache/",      # Exclude common cache directories
+#   "/__pycache__/",  # Exclude Python bytecode cache
+#   "/\.venv/",       # Exclude Python virtual environments
+#   "/\.svn/",        # Exclude Subversion metadata directories
+#   "/\.hg/",         # Exclude Mercurial metadata directories
+# ]
+#
+# Example: Exclude a specific project by path
+# exclude_patterns = [
+#   "/path/to/my/projects/archived-project",
+# ]
+#
+# Example: Combine common exclusions and specific ones
+# exclude_patterns = [
+#   "/node_modules/",
+#   "/target/",
+#   "~/dev/legacy-project", # Exclude a specific project in the dev directory
+# ]
