@@ -65,7 +65,7 @@ impl<'a> DirectoryScanner<'a> {
         debug!(path = %resolved_wt_path.display(), main_repo = %main_repo_resolved_path.display(), name = %display_name, "Creating Git worktree entry details");
         DirectoryEntry {
             path: original_wt_path, // Use the original path
-            resolved_path, // Pass resolved_wt_path directly
+            resolved_path: resolved_wt_path, // Pass resolved_wt_path directly
             display_name,
             entry_type: DirectoryType::GitWorktree {
                 main_worktree_path: main_repo_resolved_path.to_path_buf(),
