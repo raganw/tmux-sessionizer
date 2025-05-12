@@ -114,10 +114,7 @@ mod tests {
         assert!(!config.debug_mode);
         assert_eq!(config.direct_selection, None);
         // Check that other defaults are preserved
-        assert_eq!(
-            config.search_paths,
-            Config::default().search_paths
-        );
+        assert_eq!(config.search_paths, Config::default().search_paths);
     }
 
     #[test]
@@ -132,8 +129,7 @@ mod tests {
     #[test]
     fn test_config_from_args_with_direct_selection() {
         let project_name = "my_project";
-        let cli_args =
-            CliArgs::try_parse_from(["tmux-sessionizer", project_name]).unwrap();
+        let cli_args = CliArgs::try_parse_from(["tmux-sessionizer", project_name]).unwrap();
         let config = Config::from_args(cli_args);
 
         assert!(!config.debug_mode);
