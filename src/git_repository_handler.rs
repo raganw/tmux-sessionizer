@@ -9,7 +9,7 @@
 use crate::error::Result;
 use git2::{Error as Git2Error, Repository};
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, span, warn, Level};
+use tracing::{Level, debug, error, span, warn};
 
 /// Checks if the given path corresponds to a Git repository.
 ///
