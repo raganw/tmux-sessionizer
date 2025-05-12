@@ -1,55 +1,72 @@
-use crate::directory_scanner::DirectoryEntry;
-use crate::error::{AppError, Result}; // Add AppError and Result
-use skim::prelude::*; // Add skim prelude
-use std::fs; // For fs::canonicalize
-use std::io::Cursor; // To create a BufRead from String for Skim
-use std::path::PathBuf;
-use tracing::{debug, warn}; // For logging, added warn
+//! Handles the user interface for selecting a directory, either through a fuzzy finder
+//! (using the `skim` library) or by direct matching based on user input.
+//!
+//! This module provides the `FuzzyFinder` struct and associated methods to:
+//! - Format directory entries for display.
+//! - Prepare input for the `skim` fuzzy finder.
+//! - Run the `skim` interface and process user selection.
+//! - Implement direct selection logic based on various matching strategies.
+//! - Define the `SelectedItem` struct to represent the user's choice.
 
-/// Represents an item selected by the user from the fuzzy finder.
+use crate::directory_scanner::DirectoryEntry;
+use crate::error::{AppError, Result};
+use skim::prelude::*;
+use std::fs;
+use std::io::Cursor;
+use std::path::PathBuf;
+use tracing::{debug, warn};
+
+/// Represents an item selected by the user, either via the fuzzy finder or direct selection.
+///
+/// This struct holds the necessary information to proceed with creating or switching
+/// to a tmux session corresponding to the selected directory.
 #[derive(Debug, Clone)]
 pub struct SelectedItem {
-    /// The display name as it was shown in the fuzzy finder.
+    /// The name displayed to the user in the selection list (e.g., "my_project" or "[repo] worktree").
     pub display_name: String,
-    /// The resolved filesystem path for the selected item. This path will be used
-    /// for creating or switching to a tmux session.
+    /// The canonicalized, absolute filesystem path corresponding to the selected item.
+    /// This path is used as the target directory for the tmux session.
     pub path: PathBuf,
 }
 
-/// Handles the fuzzy finding process, including formatting entries for display
-/// and preparing input for the Skim library.
+/// Provides methods for interacting with the user to select a directory.
+///
+/// This includes presenting a list of directories via a fuzzy finder (`skim`)
+/// or attempting to directly match a user-provided string against the available directories.
 pub struct FuzzyFinder {}
 
 impl FuzzyFinder {
-    /// Formats a single directory entry for display in the Skim fuzzy finder.
+    /// Formats a `DirectoryEntry` for display in the `skim` fuzzy finder.
     ///
-    /// The format is `display_name\tresolved_path`, which is consistent with
-    /// how the original bash script formatted entries for `fzf`.
+    /// The output format is `display_name\tresolved_path`. The `resolved_path` is included
+    /// primarily for potential use in `skim`'s preview window or if `skim` needs to parse
+    /// the path itself, although the primary selection mechanism relies on parsing this
+    /// line format after `skim` returns the selected line.
     ///
     /// # Arguments
     ///
-    /// * `entry` - A reference to the `DirectoryEntry` to format.
+    /// * `entry` - The `DirectoryEntry` to format.
     ///
     /// # Returns
     ///
-    /// A string representation of the directory entry suitable for Skim.
+    /// A `String` formatted for `skim` input.
     fn format_directory_entry_for_skim(entry: &DirectoryEntry) -> String {
         format!("{}\t{}", entry.display_name, entry.resolved_path.display())
     }
 
-    /// Prepares the complete input string for Skim from a list of directory entries.
+    /// Prepares the input string for the `skim` fuzzy finder by formatting each `DirectoryEntry`.
     ///
-    /// Each `DirectoryEntry` is formatted using `format_directory_entry_for_skim`
-    /// and then all formatted strings are joined by newline characters. This resulting
-    /// string can be passed to Skim's item reader.
+    /// Takes a slice of `DirectoryEntry` items, formats each one using
+    /// [`format_directory_entry_for_skim`](#method.format_directory_entry_for_skim),
+    /// and joins them into a single newline-separated string suitable for `skim`.
     ///
     /// # Arguments
     ///
-    /// * `entries` - A slice of `DirectoryEntry` items to prepare.
+    /// * `entries` - A slice of `DirectoryEntry` items to be presented in the fuzzy finder.
     ///
     /// # Returns
     ///
-    /// A single string where each line is a formatted directory entry.
+    /// A `String` containing all formatted entries, separated by newlines.
     pub fn prepare_skim_input(entries: &[DirectoryEntry]) -> String {
         entries
             .iter()
@@ -58,17 +75,27 @@ impl FuzzyFinder {
             .join("\n")
     }
 
-    /// Presents the directory entries to the user via Skim for fuzzy selection.
+    /// Runs the `skim` fuzzy finder to allow the user to select a directory entry.
+    ///
+    /// Takes a slice of `DirectoryEntry` items, prepares the input for `skim`,
+    /// runs the `skim` interface, and processes the user's selection.
     ///
     /// # Arguments
     ///
-    /// * `entries` - A vector of `DirectoryEntry` items to present.
+    /// * `entries` - A slice of `DirectoryEntry` items to present to the user.
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(SelectedItem))` if the user makes a selection.
-    /// * `Ok(None)` if the user cancels the selection (e.g., by pressing Esc).
-    /// * `Err(AppError)` if an error occurs during the Skim process or parsing the selection.
+    /// * `Ok(Some(SelectedItem))` containing the details of the user's selection.
+    /// * `Ok(None)` if the user cancelled the selection (e.g., pressed ESC) or if no entries were provided.
+    /// * `Err(AppError::Finder)` if there was an error running `skim` or parsing its output.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Finder` if:
+    /// - `skim` options fail to build.
+    /// - `skim` execution itself fails.
+    /// - The selected line from `skim` cannot be parsed into the expected format (`display_name\tpath`).
     pub fn select(entries: &[DirectoryEntry]) -> Result<Option<SelectedItem>> {
         if entries.is_empty() {
             debug!("No entries provided to fuzzy finder, returning None.");
@@ -157,31 +184,43 @@ impl FuzzyFinder {
         }
     }
 
-    /// Attempts to directly select a directory entry based on a search target string.
+    /// Attempts to find a unique `DirectoryEntry` based on a user-provided search string,
+    /// bypassing the interactive fuzzy finder.
     ///
-    /// This method tries several strategies to find a unique match:
-    /// 1. Exact match on the canonicalized version of `search_target_raw` against `entry.resolved_path`.
-    /// 2. Exact match on `search_target_raw` (as a path) against `entry.path` (original path).
-    /// 3. Suffix match: `entry.resolved_path` ends with `search_target_raw`.
-    /// 4. Exact match: `entry.display_name` equals `search_target_raw`.
-    /// 5. Filename match: `entry.resolved_path.file_name()` equals `search_target_raw`.
+    /// This function implements a prioritized matching strategy:
     ///
-    /// If multiple entries match by suffix, display name, or filename, an error is returned
-    /// indicating ambiguity.
+    /// 1.  **Canonical Path Match:** Checks if `search_target_raw`, when treated as a path
+    ///     and canonicalized, exactly matches the `resolved_path` of any entry.
+    /// 2.  **Original Path Match:** Checks if `search_target_raw`, treated as a path,
+    ///     exactly matches the original `path` (before resolution/canonicalization) of any entry.
+    ///     This is useful for matching symlink paths directly.
+    /// 3.  **Suffix Match:** Checks if the `resolved_path` of any entry ends with `search_target_raw`
+    ///     (interpreted as a path suffix). Returns an error if multiple entries match.
+    /// 4.  **Display Name Match:** Checks if the `display_name` of any entry exactly matches
+    ///     `search_target_raw`. Returns an error if multiple entries match.
+    /// 5.  **Filename Match:** Checks if the filename component of the `resolved_path` of any
+    ///     entry exactly matches `search_target_raw`. Returns an error if multiple entries match.
     ///
     /// # Arguments
     ///
-    /// * `entries` - A slice of `DirectoryEntry` items to search within.
-    /// * `search_target_raw` - The string to search for, typically from a command-line argument.
+    /// * `entries` - A slice of `DirectoryEntry` items representing the available choices.
+    /// * `search_target_raw` - The string provided by the user to identify the desired directory.
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(SelectedItem))` if a unique match is found.
-    /// * `Ok(None)` if no match is found.
-    /// * `Err(AppError)` if an error occurs (e.g., ambiguity, I/O error during canonicalization).
+    /// * `Ok(Some(SelectedItem))` if a unique match is found according to the strategies above.
+    /// * `Ok(None)` if no match is found across all strategies.
+    /// * `Err(AppError::Finder)` if multiple entries match ambiguously for suffix, display name,
+    ///   or filename strategies.
+    /// * `Err(AppError::Io)` if an I/O error occurs during path canonicalization (and the path
+    ///   looks like more than just a simple name).
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Finder` for ambiguous matches.
+    /// May return `AppError::Io` indirectly via `fs::canonicalize`.
     #[allow(clippy::too_many_lines)]
     pub fn direct_select(
-        // &self, // Removed
         entries: &[DirectoryEntry],
         search_target_raw: &str,
     ) -> Result<Option<SelectedItem>> {
