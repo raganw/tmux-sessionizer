@@ -323,7 +323,7 @@ mod tests {
     fn test_create_selection_from_directory_entry_plain() {
         let entry = DirectoryEntry {
             // Assuming DirectoryEntry has these fields based on previous context
-            original_path: PathBuf::from("/path/to/my.project"),
+            path: PathBuf::from("/path/to/my.project"), // Use 'path' instead of 'original_path'
             resolved_path: PathBuf::from("/path/to/my.project"),
             display_name: "my.project".to_string(),
             entry_type: DirectoryType::Plain,
@@ -344,7 +344,7 @@ mod tests {
         let worktree_path = main_repo_path.join("worktrees").join("feature-branch");
 
         let entry = DirectoryEntry {
-            original_path: worktree_path.clone(),
+            path: worktree_path.clone(), // Use 'path' instead of 'original_path'
             resolved_path: worktree_path.clone(),
             display_name: "feature-branch (parent.repo)".to_string(), // Example display name
             entry_type: DirectoryType::GitWorktree {
