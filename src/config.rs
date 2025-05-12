@@ -57,21 +57,96 @@ impl Config {
     pub fn new() -> Self {
         let cli_args = CliArgs::parse();
         debug!(parsed_cli_args = ?cli_args, "Parsed command line arguments");
+        Self::from_args(cli_args)
+    }
 
+    // New method to make testing easier
+    pub fn from_args(args: CliArgs) -> Self {
         let mut default_config = Config::default();
 
         // Override default debug_mode if --debug flag is present
-        if cli_args.debug {
+        if args.debug {
             default_config.debug_mode = true;
         }
 
         // Set direct_selection from CLI args
-        default_config.direct_selection = cli_args.direct_selection;
+        default_config.direct_selection = args.direct_selection;
 
         // Here you would override other defaults if CliArgs had more fields
-        // For example, if cli_args.additional_paths was Some(paths),
+        // For example, if args.additional_paths was Some(paths),
         // you would merge them into default_config.additional_paths.
 
         default_config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser; // Required for CliArgs::try_parse_from
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_default_config() {
+        let config = Config::default();
+
+        assert!(!config.debug_mode);
+        assert_eq!(config.direct_selection, None);
+        assert_eq!(
+            config.search_paths,
+            vec![
+                PathBuf::from("~/Development"),
+                PathBuf::from("~/Development/raganw"),
+                PathBuf::from("~/.config"),
+            ]
+        );
+        assert!(config.additional_paths.is_empty());
+        assert!(config.exclude_patterns.is_empty());
+    }
+
+    #[test]
+    fn test_config_from_args_no_special_args() {
+        // The first element is traditionally the program name
+        let cli_args = CliArgs::try_parse_from(&["tmux-sessionizer"]).unwrap();
+        let config = Config::from_args(cli_args);
+
+        assert!(!config.debug_mode);
+        assert_eq!(config.direct_selection, None);
+        // Check that other defaults are preserved
+        assert_eq!(
+            config.search_paths,
+            Config::default().search_paths
+        );
+    }
+
+    #[test]
+    fn test_config_from_args_with_debug() {
+        let cli_args = CliArgs::try_parse_from(&["tmux-sessionizer", "--debug"]).unwrap();
+        let config = Config::from_args(cli_args);
+
+        assert!(config.debug_mode);
+        assert_eq!(config.direct_selection, None);
+    }
+
+    #[test]
+    fn test_config_from_args_with_direct_selection() {
+        let project_name = "my_project";
+        let cli_args =
+            CliArgs::try_parse_from(&["tmux-sessionizer", project_name]).unwrap();
+        let config = Config::from_args(cli_args);
+
+        assert!(!config.debug_mode);
+        assert_eq!(config.direct_selection, Some(project_name.to_string()));
+    }
+
+    #[test]
+    fn test_config_from_args_with_debug_and_direct_selection() {
+        let project_name = "another_project";
+        let cli_args =
+            CliArgs::try_parse_from(&["tmux-sessionizer", "--debug", project_name]).unwrap();
+        let config = Config::from_args(cli_args);
+
+        assert!(config.debug_mode);
+        assert_eq!(config.direct_selection, Some(project_name.to_string()));
     }
 }
