@@ -610,10 +610,11 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
 
         // Now assert that we got Some(config)
         assert!(file_config_option.is_some(), "load_config_from_dir returned Ok(None) unexpectedly");
-        let file_config = result.unwrap();
-        assert!(file_config.is_some());
-        let config = file_config.unwrap();
 
+        // Unwrap the Option<FileConfig> obtained from expect()
+        let config = file_config_option.unwrap();
+
+        // Assertions on the unwrapped FileConfig
         assert_eq!(
             config.search_paths,
             Some(vec![
