@@ -270,7 +270,9 @@ impl SessionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    // Add imports for DirectoryEntry and DirectoryType within the tests module
+    use crate::directory_scanner::{DirectoryEntry, DirectoryType};
+    use std::path::PathBuf; // Already imported
 
     #[test]
     fn test_generate_session_name_simple() {
@@ -317,7 +319,51 @@ mod tests {
         assert_eq!(name, "default_parent_project");
     }
 
-    // Note: Tests for `is_tmux_server_running` and `session_exists` would require a live tmux server
-    // or mocking the `tmux_interface` calls, which is beyond simple unit tests here.
-    // These will be tested implicitly during integration testing or manually.
+    #[test]
+    fn test_create_selection_from_directory_entry_plain() {
+        let entry = DirectoryEntry {
+            // Assuming DirectoryEntry has these fields based on previous context
+            original_path: PathBuf::from("/path/to/my.project"),
+            resolved_path: PathBuf::from("/path/to/my.project"),
+            display_name: "my.project".to_string(),
+            entry_type: DirectoryType::Plain,
+            parent_path: None,
+        };
+
+        let selection = SessionManager::create_selection_from_directory_entry(&entry);
+
+        assert_eq!(selection.path, PathBuf::from("/path/to/my.project"));
+        assert_eq!(selection.display_name, "my.project");
+        // Uses generate_session_name logic tested elsewhere
+        assert_eq!(selection.session_name, "my-project");
+    }
+
+    #[test]
+    fn test_create_selection_from_directory_entry_worktree() {
+        let main_repo_path = PathBuf::from("/path/to/parent.repo");
+        let worktree_path = main_repo_path.join("worktrees").join("feature-branch");
+
+        let entry = DirectoryEntry {
+            original_path: worktree_path.clone(),
+            resolved_path: worktree_path.clone(),
+            display_name: "feature-branch (parent.repo)".to_string(), // Example display name
+            entry_type: DirectoryType::GitWorktree {
+                main_worktree_path: main_repo_path.clone(),
+            },
+            parent_path: Some(main_repo_path.clone()),
+        };
+
+        let selection = SessionManager::create_selection_from_directory_entry(&entry);
+
+        assert_eq!(selection.path, worktree_path);
+        assert_eq!(selection.display_name, "feature-branch (parent.repo)");
+        // Uses generate_session_name logic for worktrees tested elsewhere
+        assert_eq!(selection.session_name, "parent-repo_feature-branch");
+    }
+
+    // Keep the existing note about tests requiring tmux interaction
+    // Note: Tests for `is_tmux_server_running`, `session_exists`, `create_new_session`,
+    // and `switch_or_attach_to_session` would require a live tmux server
+    // or mocking the `tmux_interface` calls, which is complex for unit tests.
+    // These functions are better suited for integration testing.
 }
