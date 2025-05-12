@@ -53,7 +53,8 @@ fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathVal
 /// Returns `Err(ConfigError)` for IO errors during reading or parsing errors.
 fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
     let Some(config_dir) = dirs::config_dir() else {
-        error!("Could not determine the user's config directory.");
+        // Use eprintln! because tracing might not be set up yet
+        eprintln!("[ERROR] Could not determine the user's config directory.");
         return Err(ConfigError::CannotDetermineConfigDir);
     };
 
@@ -61,18 +62,19 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
     config_path.push("tmux-sessionizer"); // Application-specific subdirectory
     config_path.push("tmux-sessionizer.toml"); // The config file itself
 
-    debug!(path = %config_path.display(), "Attempting to load configuration from file");
+    // Use eprintln! for logging before tracing is initialized
+    eprintln!("[DEBUG] Attempting to load configuration from file: {}", config_path.display());
 
     if !config_path.exists() {
-        info!(path = %config_path.display(), "Configuration file not found. Proceeding with defaults and CLI arguments.");
+        eprintln!("[INFO] Configuration file not found at {}. Proceeding with defaults and CLI arguments.", config_path.display());
         return Ok(None);
     }
 
-    info!(path = %config_path.display(), "Configuration file found. Reading and parsing.");
+    eprintln!("[INFO] Configuration file found at {}. Reading and parsing.", config_path.display());
     let content = match fs::read_to_string(&config_path) {
         Ok(c) => c,
         Err(e) => {
-            error!(path = %config_path.display(), error = %e, "Failed to read configuration file content.");
+            eprintln!("[ERROR] Failed to read configuration file content from {}: {}", config_path.display(), e);
             return Err(ConfigError::FileReadError {
                 path: config_path,
                 source: e,
@@ -80,14 +82,14 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
         }
     };
 
-    trace!(file_content = %content, "Successfully read configuration file content");
+    eprintln!("[TRACE] Successfully read configuration file content:\n{}", content);
     match toml::from_str::<FileConfig>(&content) {
         Ok(parsed_config) => {
-            info!(path = %config_path.display(), "Successfully parsed configuration file.");
+            eprintln!("[INFO] Successfully parsed configuration file: {}", config_path.display());
             Ok(Some(parsed_config))
         }
         Err(e) => {
-            error!(path = %config_path.display(), error = %e, "Failed to parse TOML configuration from file.");
+            eprintln!("[ERROR] Failed to parse TOML configuration from file {}: {}", config_path.display(), e);
             Err(ConfigError::FileParseError {
                 path: config_path,
                 source: e,
