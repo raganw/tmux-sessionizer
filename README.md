@@ -98,17 +98,77 @@ tmux-sessionizer [OPTIONS] [DIRECT_SELECTION]
 
 ## Configuration
 
-### Search Paths
+`tmux-sessionizer` can be configured using a TOML file located at `~/.config/tmux-sessionizer/tmux-sessionizer.toml`. This file allows you to customize search paths and exclusion patterns.
 
-Currently, `tmux-sessionizer` scans a predefined set of directories for projects. These default search paths are:
+### Configuration File Location
 
-*   `~/Development`
-*   `~/Development/raganw`
-*   `~/.config`
+The configuration file is expected at:
+```
+~/.config/tmux-sessionizer/tmux-sessionizer.toml
+```
+If this file does not exist, `tmux-sessionizer` will use default settings. Tilde (`~`) is expanded to your home directory.
 
-Tilde (`~`) is automatically expanded to your home directory.
+### Configuration Options
 
-*Future versions may allow customization of these search paths and exclusion patterns via a configuration file.*
+The following options can be set in the TOML file:
+
+*   **`search_paths`** (Optional, Array of Strings)
+    *   Defines the primary directories to scan for projects.
+    *   Paths starting with `~` will be expanded to your home directory.
+    *   If not specified in the config file, default paths will be used (currently `~/Development`, `~/Development/raganw`, `~/.config`).
+    *   Example:
+        ```toml
+        # ~/.config/tmux-sessionizer/tmux-sessionizer.toml
+        search_paths = ["~/dev", "~/workspaces", "/opt/projects"]
+        ```
+
+*   **`additional_paths`** (Optional, Array of Strings)
+    *   Specifies extra directories to include in the scan, in addition to `search_paths`.
+    *   Useful for temporarily adding project locations.
+    *   Paths starting with `~` will be expanded.
+    *   Example:
+        ```toml
+        # ~/.config/tmux-sessionizer/tmux-sessionizer.toml
+        additional_paths = ["~/clients/project-x", "/mnt/shared/team-projects"]
+        ```
+
+*   **`exclude_patterns`** (Optional, Array of Strings)
+    *   A list of regular expressions. Any directory whose *full, absolute path* matches one of these patterns will be excluded.
+    *   Useful for ignoring common build/dependency directories (e.g., `node_modules`, `target`) or specific projects.
+    *   Remember to escape special regex characters if needed (e.g., `.` should be `\.`).
+    *   Example:
+        ```toml
+        # ~/.config/tmux-sessionizer/tmux-sessionizer.toml
+        exclude_patterns = [
+          "/node_modules/",
+          "/target/",
+          "/vendor/",
+          "/\.git/",        # Exclude .git directories themselves
+          "/\.cache/",
+          "/__pycache__/",
+          "/\.venv/",
+          "/path/to/ignore/this/project", # Ignore a specific project path
+        ]
+        ```
+
+### Example Configuration File
+
+See the `examples/tmux-sessionizer.toml` file in the repository for a detailed example with comments explaining each option.
+
+### Configuration Precedence
+
+Settings are applied in the following order, with later sources overriding earlier ones:
+
+1.  **Defaults**: Built-in default values (e.g., default search paths if `search_paths` is not set in the config file).
+2.  **Configuration File**: Values loaded from `~/.config/tmux-sessionizer/tmux-sessionizer.toml`.
+3.  **Command-Line Arguments**: Arguments provided when running the application (e.g., `--debug`, `[DIRECT_SELECTION]`). *Note: Currently, CLI arguments do not override paths or exclusions from the config file, but this defines the intended future precedence.*
+
+### Troubleshooting
+
+*   **File Not Found**: Ensure the configuration file is placed exactly at `~/.config/tmux-sessionizer/tmux-sessionizer.toml`. Check permissions if the file exists but cannot be read.
+*   **Invalid TOML**: Check the syntax of your TOML file. Errors during parsing will be logged if `--debug` is enabled.
+*   **Path Issues**: Ensure specified paths exist and are directories. Errors related to path validation will be logged.
+*   **Permissions**: Make sure `tmux-sessionizer` has read permissions for the configuration file and execute/search permissions for the directories it needs to scan.
 
 ## Development Status
 
