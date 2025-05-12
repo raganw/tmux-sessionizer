@@ -1,10 +1,41 @@
+//! Provides functions for interacting with Git repositories using the `git2` crate.
+//!
+//! This module includes functionality to:
+//! - Check if a directory is a Git repository (standard or bare).
+//! - List linked Git worktrees for a given repository path.
+//! - Determine the main repository path (working directory for standard repos, path for bare repos)
+//!   from any path within the repository or its worktrees.
+
 use crate::error::Result;
 use git2::{Error as Git2Error, Repository};
 use std::path::{Path, PathBuf};
-use tracing::{Level, debug, error, span, warn};
+use tracing::{debug, error, span, warn, Level};
 
-/// Checks if the given path is a Git repository.
-/// This could be a plain repository (with a .git subdirectory) or a bare repository.
+/// Checks if the given path corresponds to a Git repository.
+///
+/// This function attempts to open the path as a Git repository. It handles both
+/// standard repositories (with a `.git` subdirectory) and bare repositories.
+///
+/// # Arguments
+///
+/// * `path` - The filesystem path to check.
+///
+/// # Returns
+///
+/// `true` if the path is a Git repository, `false` otherwise.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use tmux_sessionizer::git_repository_handler::is_git_repository;
+///
+/// // Assume "/path/to/my_repo" contains a valid Git repository
+/// assert!(is_git_repository(Path::new("/path/to/my_repo")));
+///
+/// // Assume "/path/to/not_a_repo" is just a regular directory
+/// assert!(!is_git_repository(Path::new("/path/to/not_a_repo")));
+/// ```
 pub fn is_git_repository(path: &Path) -> bool {
     match Repository::open(path) {
         Ok(_) => {
@@ -25,16 +56,59 @@ pub fn is_git_repository(path: &Path) -> bool {
     }
 }
 
-/// Represents a Git worktree with its name and path.
+/// Represents a Git worktree, containing its name and filesystem path.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Worktree {
+    /// The name of the worktree (e.g., "feature-branch").
     pub name: String,
+    /// The absolute path to the worktree's root directory.
     pub path: PathBuf,
 }
 
-/// Lists all linked worktrees for the given repository.
-/// The `repo_path` can be the path to the main working directory, a bare repository, or any of its linked worktrees.
-/// This function does NOT list the main worktree itself, only those added via `git worktree add`.
+/// Lists all linked worktrees associated with a Git repository.
+///
+/// This function opens the Git repository located at `repo_path` (which can be the main
+/// working directory, a bare repository path, or the path to any linked worktree) and
+/// retrieves a list of all *other* linked worktrees.
+///
+/// Note: This function does *not* include the main worktree (if one exists) in the returned list.
+/// It only lists worktrees added using `git worktree add`.
+///
+/// # Arguments
+///
+/// * `repo_path` - A path within any part of the Git repository structure (main worktree,
+///   bare repo, or a linked worktree).
+///
+/// # Returns
+///
+/// A `Result` containing a `Vec<Worktree>` on success. Each `Worktree` struct contains the name
+/// and absolute path of a linked worktree. Returns an error if the repository cannot be opened
+/// or if there's an issue querying worktrees.
+///
+/// # Errors
+///
+/// This function can return errors originating from the `git2` library, such as:
+/// - Repository not found at the given path.
+/// - Corrupted repository data.
+/// - Permission errors.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use tmux_sessionizer::git_repository_handler::list_linked_worktrees;
+///
+/// // Assume "/path/to/my_repo" is a Git repo with a linked worktree named "dev"
+/// // located at "/path/to/my_repo_dev"
+/// match list_linked_worktrees(Path::new("/path/to/my_repo")) {
+///     Ok(worktrees) => {
+///         assert_eq!(worktrees.len(), 1);
+///         assert_eq!(worktrees[0].name, "dev");
+///         assert_eq!(worktrees[0].path.to_str().unwrap(), "/path/to/my_repo_dev");
+///     }
+///     Err(e) => eprintln!("Error listing worktrees: {}", e),
+/// }
+/// ```
 pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
     let list_span = span!(Level::DEBUG, "list_linked_worktrees", repo_path = %repo_path.display());
     let _enter = list_span.enter();
@@ -77,10 +151,67 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
     Ok(result)
 }
 
-/// Determines the canonical path of the main repository entity.
-/// If `path_in_repo` is part of a non-bare repository, this returns the path to its working directory.
-/// If `path_in_repo` is part of a bare repository, this returns the path to the bare repository itself.
-/// This works whether `path_in_repo` is in the main worktree or a linked worktree.
+/// Determines the canonical path representing the "main" entity of a Git repository.
+///
+/// Given a path that resides anywhere within a Git repository structure (main worktree,
+/// linked worktree, or the `.git` directory itself, including bare repositories), this function
+/// identifies and returns the canonical path of the primary repository entity.
+///
+/// - For a **standard (non-bare) repository**, this is the canonical path to the **main working directory**
+///   (the directory containing the `.git` folder, or the directory the bare repo was cloned into initially).
+/// - For a **bare repository**, this is the canonical path to the **bare repository directory itself**
+///   (e.g., `/path/to/my_repo.git`).
+///
+/// This function correctly resolves the main path even when `path_in_repo` points to a linked worktree.
+///
+/// # Arguments
+///
+/// * `path_in_repo` - A path known to be inside a Git repository structure.
+///
+/// # Returns
+///
+/// A `Result` containing the canonical `PathBuf` of the main repository entity on success.
+/// Returns an error if the repository cannot be opened, if the path structure is unexpected,
+/// or if canonicalization fails.
+///
+/// # Errors
+///
+/// This function can return errors from:
+/// - `git2::Repository::open` if the path doesn't belong to a valid repository.
+/// - Filesystem operations like `std::fs::canonicalize` if the determined path doesn't exist or
+///   there are permission issues.
+/// - Logic errors if the repository structure is inconsistent (e.g., a worktree's common dir
+///   doesn't have a parent for a non-bare repo).
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use tmux_sessionizer::git_repository_handler::get_main_repository_path;
+///
+/// // Assume standard repo at "/projects/my_app" with worktree at "/projects/my_app_dev"
+/// let main_repo_path = Path::new("/projects/my_app");
+/// let worktree_path = Path::new("/projects/my_app_dev");
+///
+/// // Get main path from the main repo directory
+/// assert_eq!(get_main_repository_path(main_repo_path).unwrap(), std::fs::canonicalize(main_repo_path).unwrap());
+///
+/// // Get main path from within the main repo
+/// assert_eq!(get_main_repository_path(&main_repo_path.join("src")).unwrap(), std::fs::canonicalize(main_repo_path).unwrap());
+///
+/// // Get main path from the worktree directory
+/// assert_eq!(get_main_repository_path(worktree_path).unwrap(), std::fs::canonicalize(main_repo_path).unwrap());
+///
+/// // Assume bare repo at "/srv/git/my_bare_repo.git" with worktree at "/home/user/dev/my_bare_repo_wt"
+/// let bare_repo_path = Path::new("/srv/git/my_bare_repo.git");
+/// let bare_worktree_path = Path::new("/home/user/dev/my_bare_repo_wt");
+///
+/// // Get main path from the bare repo path
+/// assert_eq!(get_main_repository_path(bare_repo_path).unwrap(), std::fs::canonicalize(bare_repo_path).unwrap());
+///
+/// // Get main path from the worktree of the bare repo
+/// assert_eq!(get_main_repository_path(bare_worktree_path).unwrap(), std::fs::canonicalize(bare_repo_path).unwrap());
+/// ```
 pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
     let path_span =
         span!(Level::DEBUG, "get_main_repository_path", path_in_repo = %path_in_repo.display());
