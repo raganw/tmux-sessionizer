@@ -6,11 +6,9 @@
 use crate::error::{ConfigError, PathValidationError};
 use crate::path_utils::expand_tilde; // For expanding tilde in paths
 use clap::Parser;
-use dirs; // For locating user-specific directories
 use regex::Regex;
 use serde_derive::Deserialize;
 use std::fs;
-use toml; // For parsing TOML configuration files
 use std::io;
 use std::path::PathBuf;
 use tracing::{debug, error, info, trace, warn};
@@ -53,13 +51,10 @@ fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathVal
 /// Returns `Ok(Some(FileConfig))` if loaded and parsed successfully.
 /// Returns `Ok(None)` if the config directory is not found or the file does not exist.
 /// Returns `Err(ConfigError)` for IO errors during reading or parsing errors.
-fn load_config_file() -> std::result::Result<Option<FileConfig>, ConfigError> {
-    let config_dir = match dirs::config_dir() {
-        Some(dir) => dir,
-        None => {
-            error!("Could not determine the user's config directory.");
-            return Err(ConfigError::CannotDetermineConfigDir);
-        }
+fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
+    let Some(config_dir) = dirs::config_dir() else {
+        error!("Could not determine the user's config directory.");
+        return Err(ConfigError::CannotDetermineConfigDir);
     };
 
     let mut config_path = config_dir;

@@ -4,11 +4,9 @@
 //! and provide convenient error handling throughout the application. It aggregates
 //! errors from various sources like I/O, Git operations, configuration, etc.
 
-use regex;
 use std::io;
 use std::path::PathBuf;
 use thiserror::Error;
-use toml;
 
 // Define new error enums for configuration and path validation issues
 #[derive(Debug, Error)]
