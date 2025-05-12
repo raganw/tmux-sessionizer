@@ -498,6 +498,7 @@ mod tests {
     use crate::config::Config;
     use crate::directory_scanner::DirectoryType;
     use git2::{Repository, Signature, WorktreeAddOptions};
+    use regex::Regex;
     use std::fs::{self, File};
     use std::path::Path;
     use tempfile::tempdir;
@@ -535,13 +536,13 @@ mod tests {
                 .expect("Failed to create initial commit in bare repo");
         }
 
-        let mut opts = WorktreeAddOptions::new();
+        let opts = WorktreeAddOptions::new();
         // opts.reference(Some(&bare_repo.head().unwrap().peel_to_commit().unwrap().id().into()));
         // The above is more robust but requires a valid HEAD. Simpler:
         // opts.reference(None); // This should checkout HEAD by default if available
 
         bare_repo
-            .worktree(worktree_name, worktree_path, Some(&mut opts))
+            .worktree(worktree_name, worktree_path, Some(&opts))
             .unwrap_or_else(|_| {
                 panic!("Failed to add worktree '{worktree_name}' at path {worktree_path:?}")
             });
@@ -962,7 +963,6 @@ mod tests {
         let project_b_path = base_dir.path().join("project_b_exclude");
         fs::create_dir(&project_b_path).unwrap();
 
-        use regex::Regex;
         let mut config = default_test_config();
         config.search_paths = vec![base_dir.path().to_path_buf()];
         config.exclude_patterns = vec![Regex::new("_exclude$").unwrap()];
@@ -1124,7 +1124,6 @@ mod tests {
         fs::create_dir(temp_dir.path().join("project1")).unwrap();
         fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
         fs::create_dir(temp_dir.path().join("project2")).unwrap();
-        use regex::Regex;
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
@@ -1150,7 +1149,6 @@ mod tests {
         fs::create_dir(temp_dir.path().join("project_code")).unwrap();
         fs::create_dir(temp_dir.path().join("logs_dir_main")).unwrap();
         fs::create_dir(temp_dir.path().join("another_dir")).unwrap();
-        use regex::Regex;
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
@@ -1177,7 +1175,6 @@ mod tests {
         fs::create_dir(temp_dir.path().join("target")).unwrap();
         fs::create_dir(temp_dir.path().join("docs")).unwrap();
         fs::create_dir(temp_dir.path().join("vendor")).unwrap();
-        use regex::Regex;
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
