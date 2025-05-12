@@ -4,6 +4,8 @@
 // and the main `Config` struct that holds the application's runtime settings.
 
 use clap::Parser;
+use serde::Deserialize;
+use serde_derive::Deserialize;
 use regex::Regex;
 use std::path::PathBuf;
 use tracing::debug;
@@ -39,6 +41,22 @@ pub(crate) struct CliArgs {
     direct_selection: Option<String>,
     // #[arg(long, value_delimiter = ',', help = "Additional search paths, comma-separated")]
     // additional_paths: Option<Vec<PathBuf>>,
+}
+
+/// Represents the structure of the configuration file (e.g., tmux-sessionizer.toml).
+/// Used for deserializing the configuration from TOML format.
+#[derive(Deserialize, Debug, Default)]
+#[serde(deny_unknown_fields)] // Optional: Error if unknown fields are in the TOML
+pub(crate) struct FileConfig {
+    /// Optional list of default search paths from the config file.
+    #[serde(default)]
+    pub search_paths: Option<Vec<String>>,
+    /// Optional list of additional search paths from the config file.
+    #[serde(default)]
+    pub additional_paths: Option<Vec<String>>,
+    /// Optional list of patterns to exclude from the search.
+    #[serde(default)]
+    pub exclude_patterns: Option<Vec<String>>,
 }
 
 /// Holds the application's runtime configuration.
