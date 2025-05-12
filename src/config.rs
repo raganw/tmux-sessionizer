@@ -3,7 +3,6 @@
 // This module defines the structure for command-line arguments using `clap`
 // and the main `Config` struct that holds the application's runtime settings.
 
-use clap::Parser;
 use crate::error::{ConfigError, PathValidationError};
 use clap::Parser;
 use regex::Regex;
@@ -30,9 +29,16 @@ fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathVal
         Err(e) => {
             error!(path = %path.display(), error = %e, "Error accessing path metadata");
             match e.kind() {
-                io::ErrorKind::NotFound => Err(PathValidationError::DoesNotExist { path: path.clone() }),
-                io::ErrorKind::PermissionDenied => Err(PathValidationError::PermissionDenied { path: path.clone() }),
-                _ => Err(PathValidationError::FilesystemError { path: path.clone(), source: e }),
+                io::ErrorKind::NotFound => {
+                    Err(PathValidationError::DoesNotExist { path: path.clone() })
+                }
+                io::ErrorKind::PermissionDenied => {
+                    Err(PathValidationError::PermissionDenied { path: path.clone() })
+                }
+                _ => Err(PathValidationError::FilesystemError {
+                    path: path.clone(),
+                    source: e,
+                }),
             }
         }
     }
@@ -150,7 +156,7 @@ impl Config {
     fn validate(&self) -> std::result::Result<(), ConfigError> {
         info!("Validating configuration paths");
         for path in self.search_paths.iter().chain(self.additional_paths.iter()) {
-             validate_path_is_directory(path)?; // The ? automatically converts PathValidationError to ConfigError::InvalidPath
+            validate_path_is_directory(path)?; // The ? automatically converts PathValidationError to ConfigError::InvalidPath
         }
         debug!("All configured paths validated successfully.");
         Ok(())
