@@ -51,8 +51,10 @@ fn setup_tracing(debug_mode: bool) {
 ///
 /// * `Result<()>` - Returns `Ok(())` on successful execution, or an `AppError` if any step fails.
 fn main() -> Result<()> {
-    // 1. Parse command-line arguments and create a Config instance
-    let config = Config::new();
+    // 1. Parse command-line arguments, load config file, and create a Config instance
+    // Config::new() now handles merging CLI args, config file, and defaults,
+    // and returns a Result.
+    let config = Config::new()?; // Propagate potential ConfigError
 
     // Setup tracing based on the debug_mode from config
     setup_tracing(config.debug_mode);
