@@ -46,7 +46,7 @@ fn main() -> Result<()> {
     // 2. Create a DirectoryScanner instance and scan directories
     let scanner = DirectoryScanner::new(&config);
     tracing::info!("Starting directory scan via main...");
-    let scanned_entries = scanner.scan()?; // Added ?
+    let scanned_entries = scanner.scan();
     tracing::info!(
         "Directory scan complete. Found {} entries.",
         scanned_entries.len()
