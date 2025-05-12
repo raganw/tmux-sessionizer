@@ -6,7 +6,8 @@ use tracing::debug;
 #[derive(Parser, Debug)]
 #[command(name = "tmux-sessionizer")]
 #[command(author, version, about = "A utility for managing tmux sessions based on project directories.", long_about = None)]
-struct CliArgs {
+// Make CliArgs pub(crate)
+pub(crate) struct CliArgs {
     #[arg(short, long, action = clap::ArgAction::SetTrue, help = "Enable debug mode")]
     debug: bool,
     // Placeholder for potential future arguments for paths or exclusions
