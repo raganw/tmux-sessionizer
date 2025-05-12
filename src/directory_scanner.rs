@@ -1,48 +1,92 @@
-use crate::config::Config; // Add this to use the Config struct
+//! Scans directories based on configuration to find potential projects (plain directories, Git repositories, Git worktrees).
+//!
+//! This module provides the `DirectoryScanner` struct, which takes a `Config` and performs
+//! the directory traversal and identification logic. It uses libraries like `walkdir` for
+//! efficient traversal and `git2` for Git repository detection. It also handles tilde expansion
+//! and exclusion patterns. Parallel processing is used via Rayon to speed up the scanning
+//! of multiple candidate paths.
+
+use crate::config::Config;
 use crate::container_detector;
-use crate::error::Result; // Add this line to import your custom Result type
+use crate::error::Result;
 use crate::git_repository_handler::{self, is_git_repository, list_linked_worktrees};
-use crate::path_utils::expand_tilde; // Add this import
-use git2::Repository; // For repo.is_worktree()
-use rayon::prelude::*; // Add Rayon prelude
-use std::collections::HashSet; // Add this for HashSet
+use crate::path_utils::expand_tilde;
+use git2::Repository;
+use rayon::prelude::*;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex; // Add Mutex for thread-safe HashSet access
-use tracing::{Level, debug, error, info, span, warn}; // Add tracing imports
-use walkdir::WalkDir; // Add this for directory traversal
+use std::sync::Mutex;
+use tracing::{Level, debug, error, info, span, warn};
+use walkdir::WalkDir;
 
+/// Represents the type of a directory entry found during scanning.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DirectoryType {
+    /// A standard directory with no special characteristics detected.
     Plain,
+    /// A directory identified as the root of a Git repository (e.g., contains a `.git` directory or is bare).
     GitRepository,
+    /// A directory identified as a Git worktree, linked to a main Git repository.
     GitWorktree {
+        /// The canonical path to the main repository's working directory or the bare repository path.
         main_worktree_path: PathBuf,
-    }, // Path to the main .git dir or main worktree's root
-    #[allow(dead_code)]
-    // This variant is used conceptually for exclusion, not direct construction of entries.
-    GitWorktreeContainer, // A directory that primarily contains worktrees of a single main repo
+    },
+    /// A directory that primarily contains worktrees of a single main repository.
+    /// This type is used internally to exclude the container directory itself from the results.
+    #[allow(dead_code)] // Used conceptually for exclusion, not direct construction of entries.
+    GitWorktreeContainer,
 }
 
+/// Represents a directory found during the scan, along with its metadata.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirectoryEntry {
+    /// The original path as discovered (e.g., from `walkdir` or config). Might contain `~` or be relative.
     pub path: PathBuf,
+    /// The canonicalized, absolute path of the directory. Used for unique identification.
     pub resolved_path: PathBuf,
+    /// The name used for display purposes, often the directory's basename or a formatted name for worktrees.
     pub display_name: String,
+    /// The type of the directory (Plain, GitRepository, GitWorktree).
     pub entry_type: DirectoryType,
-    pub parent_path: Option<PathBuf>, // For worktrees, to reference their main repo's path
+    /// For worktrees, this holds the canonical path to the main repository's working directory or bare repo path.
+    pub parent_path: Option<PathBuf>,
 }
 
+/// Scans the filesystem for directories based on the provided configuration.
+///
+/// It identifies plain directories, Git repositories, and Git worktrees,
+/// applying exclusion rules and handling tilde expansion.
 pub struct DirectoryScanner<'a> {
+    /// Reference to the application configuration.
     config: &'a Config,
 }
 
 impl<'a> DirectoryScanner<'a> {
+    /// Creates a new `DirectoryScanner` with the given configuration.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - A reference to the application's `Config`.
     pub fn new(config: &'a Config) -> Self {
         Self { config }
     }
 
-    // Modified helper: returns DirectoryEntry, no processed_paths or entries collection
+    /// Creates a `DirectoryEntry` for a Git worktree.
+    ///
+    /// This helper function constructs the display name and sets the appropriate
+    /// `DirectoryType` and `parent_path` for a worktree entry.
+    ///
+    /// # Arguments
+    ///
+    /// * `original_wt_path` - The path of the worktree as originally found.
+    /// * `resolved_wt_path` - The canonicalized path of the worktree.
+    /// * `main_repo_resolved_path` - The canonicalized path of the main repository.
+    /// * `_worktree_name_opt` - Optional name of the worktree (currently unused in display name).
+    ///
+    /// # Returns
+    ///
+    /// A `DirectoryEntry` representing the Git worktree.
     fn add_worktree_entry(
         original_wt_path: PathBuf, // The path as found by WalkDir or from git config
         resolved_wt_path: PathBuf, // The canonicalized path of the worktree
@@ -307,31 +351,50 @@ impl<'a> DirectoryScanner<'a> {
         Ok(current_entries)
     }
 
-    // Modified helper: returns DirectoryEntry, no processed_paths or entries collection
+    /// Creates a `DirectoryEntry` for a plain directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `original_path` - The path as originally found.
+    /// * `resolved_path` - The canonicalized path of the directory.
+    /// * `display_name` - The basename of the resolved path, used for display.
+    ///
+    /// # Returns
+    ///
+    /// A `DirectoryEntry` representing the plain directory.
     fn add_plain_directory_entry(
         original_path: PathBuf,
         resolved_path: PathBuf,
-        display_name: String, // This is already basename of resolved_path
+        display_name: String,
     ) -> DirectoryEntry {
-        // The check for processed_resolved_paths is now done in process_path_candidate.
-        // debug!(path = %resolved_path.display(), "Plain directory path already processed, skipping"); // This log is removed
-
         debug!(name = %display_name, path = %resolved_path.display(), "Creating plain directory entry details");
         DirectoryEntry {
-            path: original_path, // Use the original path
-            resolved_path,       // Pass resolved_path directly
-            display_name,        // Basename of resolved_path
+            path: original_path,
+            resolved_path,
+            display_name,
             entry_type: DirectoryType::Plain,
             parent_path: None,
         }
     }
 
+    /// Performs the directory scan based on the configuration.
+    ///
+    /// This is the main entry point for the scanner. It:
+    /// 1. Initializes data structures (path list, processed paths set).
+    /// 2. Collects initial paths from `config.search_paths` (non-recursive children)
+    ///    and `config.additional_paths`. Handles tilde expansion.
+    /// 3. Uses Rayon to process the collected paths in parallel via `process_path_candidate`.
+    /// 4. Consolidates the results from parallel processing.
+    /// 5. Returns the final list of unique `DirectoryEntry` items.
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<DirectoryEntry>` containing all valid and unique directories/worktrees found.
     pub fn scan(&self) -> Vec<DirectoryEntry> {
         let scan_span = span!(Level::INFO, "directory_scan");
         let _enter = scan_span.enter();
         info!("Starting directory scan");
 
-        // Mutex for thread-safe access to the set of processed resolved paths
         let processed_resolved_paths_mux = Mutex::new(HashSet::new());
         let mut paths_to_process: Vec<(PathBuf, bool)> = Vec::new(); // (path, is_explicitly_added)
 
@@ -853,8 +916,7 @@ mod tests {
         // It simulates adding "~/test_dev_project" and "/tmp/other_proj" (using tempdir for the latter).
         let home_dir = dirs::home_dir().expect("Cannot run test without a home directory");
         let dev_project_in_home = home_dir.join("test_dev_project_for_scanner");
-        fs::create_dir_all(&dev_project_in_home)
-            .expect("Failed to create test dir in home");
+        fs::create_dir_all(&dev_project_in_home).expect("Failed to create test dir in home");
 
         let other_loc_dir = tempdir().unwrap();
         let additional_project_path = other_loc_dir.path().join("additional_proj");
