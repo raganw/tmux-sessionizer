@@ -252,9 +252,9 @@ mod tests {
         }
         fs::create_dir_all(worktree_path.parent().unwrap())
             .expect("Failed to create parent for worktree path");
-        let mut opts = WorktreeAddOptions::new();
+        let opts = WorktreeAddOptions::new();
         bare_repo
-            .worktree(worktree_name, worktree_path, Some(&mut opts))
+            .worktree(worktree_name, worktree_path, Some(&opts))
             .expect("Failed to add worktree");
         Repository::open(worktree_path).expect("Failed to open added worktree")
     }

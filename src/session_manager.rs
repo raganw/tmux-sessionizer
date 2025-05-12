@@ -311,7 +311,6 @@ mod tests {
 
     #[test]
     fn test_generate_session_name_root_path_parent() {
-        let manager = SessionManager::new();
         let item_path = PathBuf::from("/some/project");
         let parent_repo_path = PathBuf::from("/");
         let name = SessionManager::generate_session_name(&item_path, Some(&parent_repo_path));
