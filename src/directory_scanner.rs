@@ -394,13 +394,11 @@ mod tests {
     use crate::config::Config;
     use crate::directory_scanner::DirectoryType; // Added for matching
     use git2::{Repository, Signature, WorktreeAddOptions}; // Added Signature
-    use regex::Regex;
     use std::fs::{self, File}; // Added File
-    use std::path::{Path, PathBuf}; // Added Path, PathBuf
+    use std::path::Path; // Added Path
     use tempfile::tempdir;
     // Required for MutexGuard, though not directly used in assertions, it's part of process_entry signature
     // use std::sync::MutexGuard; No, this is an internal detail, not needed for test setup.
-    use std::collections::HashSet; // Added HashSet
 
     // Helper to initialize a standard git repo
     fn init_repo(path: &Path) -> Repository {
@@ -417,7 +415,7 @@ mod tests {
         bare_repo: &Repository,
         worktree_name: &str,
         worktree_path: &Path,
-    ) -> Repository {
+    ) { // Changed return type from Repository to ()
         // Create an initial commit if the repo is empty, which is necessary for worktree creation.
         if bare_repo.is_empty().unwrap_or(true) {
             let mut index = bare_repo
@@ -852,6 +850,7 @@ mod tests {
         let project_b_path = base_dir.path().join("project_b_exclude");
         fs::create_dir(&project_b_path).unwrap();
 
+        use regex::Regex; // Move Regex import here as it's only used in this test block
         let mut config = default_test_config();
         config.search_paths = vec![base_dir.path().to_path_buf()];
         config.exclude_patterns = vec![Regex::new("_exclude$").unwrap()];
@@ -1013,6 +1012,7 @@ mod tests {
         fs::create_dir(temp_dir.path().join("project1")).unwrap();
         fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
         fs::create_dir(temp_dir.path().join("project2")).unwrap();
+        use regex::Regex; // Move Regex import here as it's only used in this test block
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
@@ -1034,6 +1034,7 @@ mod tests {
         fs::create_dir(temp_dir.path().join("project_code")).unwrap();
         fs::create_dir(temp_dir.path().join("logs_dir_main")).unwrap();
         fs::create_dir(temp_dir.path().join("another_dir")).unwrap();
+        use regex::Regex; // Move Regex import here as it's only used in this test block
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
@@ -1056,6 +1057,7 @@ mod tests {
         fs::create_dir(temp_dir.path().join("target")).unwrap();
         fs::create_dir(temp_dir.path().join("docs")).unwrap();
         fs::create_dir(temp_dir.path().join("vendor")).unwrap();
+        use regex::Regex; // Move Regex import here as it's only used in this test block
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
