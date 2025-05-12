@@ -12,6 +12,9 @@ pub enum AppError {
     #[error("Git operation error: {0}")]
     Git(#[from] git2::Error),
 
+    #[error("Internal error: {0}")]
+    Anyhow(#[from] anyhow::Error),
+
     #[error("Fuzzy finder error: {0}")]
     Finder(String),
 
