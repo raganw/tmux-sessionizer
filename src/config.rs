@@ -1,17 +1,22 @@
+// Handles application configuration, primarily derived from command-line arguments.
+//
+// This module defines the structure for command-line arguments using `clap`
+// and the main `Config` struct that holds the application's runtime settings.
+
 use clap::Parser;
 use regex::Regex;
 use std::path::PathBuf;
 use tracing::debug;
 
+/// Command-line arguments parsed by clap.
 #[derive(Parser, Debug)]
 #[command(name = "tmux-sessionizer")]
 #[command(author, version, about = "A utility for managing tmux sessions based on project directories.", long_about = None)]
-// Make CliArgs pub(crate)
 pub(crate) struct CliArgs {
+    /// Enable detailed debug logging.
     #[arg(short, long, action = clap::ArgAction::SetTrue, help = "Enable debug mode")]
     debug: bool,
-    // Placeholder for potential future arguments for paths or exclusions
-    // For example:
+    /// Directly select a path or name, skipping the fuzzy finder.
     #[arg(
         index = 1,
         help = "Direct path or name to select. If provided, fuzzy finder is skipped."
@@ -21,19 +26,23 @@ pub(crate) struct CliArgs {
     // additional_paths: Option<Vec<PathBuf>>,
 }
 
-#[derive(Debug)] // Added Debug derive for easier inspection later
+/// Holds the application's runtime configuration.
+#[derive(Debug)]
 pub struct Config {
+    /// Default directories to search for projects.
     pub search_paths: Vec<PathBuf>,
+    /// Additional directories specified by the user to search. (Currently unused CLI arg)
     pub additional_paths: Vec<PathBuf>,
+    /// Patterns to exclude directories from the search. (Currently unused CLI arg)
     pub exclude_patterns: Vec<Regex>,
+    /// Flag indicating whether debug logging is enabled.
     pub debug_mode: bool,
+    /// An optional path or name provided directly by the user, bypassing the fuzzy finder.
     pub direct_selection: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        // Default search paths. These might need adjustment to match the original script's behavior.
-        // For now, let's use common development directories.
         // The tilde (~) needs to be expanded to the user's home directory.
         // We'll handle tilde expansion when these paths are actually used,
         // or when the config is fully parsed. For Default, we'll store them as is.
@@ -41,13 +50,12 @@ impl Default for Config {
             PathBuf::from("~/Development"),
             PathBuf::from("~/Development/raganw"),
             PathBuf::from("~/.config"),
-            // Add other common paths if known from the bash script
         ];
 
         Config {
             search_paths: default_search_paths,
             additional_paths: Vec::new(),
-            exclude_patterns: Vec::new(), // No default exclude patterns for now, can be added if needed
+            exclude_patterns: Vec::new(),
             debug_mode: false,
             direct_selection: None,
         }
@@ -55,13 +63,14 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Creates a new `Config` instance by parsing command-line arguments.
     pub fn new() -> Self {
         let cli_args = CliArgs::parse();
         debug!(parsed_cli_args = ?cli_args, "Parsed command line arguments");
         Self::from_args(cli_args)
     }
 
-    // New method to make testing easier
+    /// Creates a `Config` instance from pre-parsed `CliArgs`. Useful for testing.
     pub fn from_args(args: CliArgs) -> Self {
         let mut default_config = Config::default();
 
@@ -73,10 +82,6 @@ impl Config {
         // Set direct_selection from CLI args
         default_config.direct_selection = args.direct_selection;
 
-        // Here you would override other defaults if CliArgs had more fields
-        // For example, if args.additional_paths was Some(paths),
-        // you would merge them into default_config.additional_paths.
-
         default_config
     }
 }
@@ -84,7 +89,6 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::Parser; // Required for CliArgs::try_parse_from
     use std::path::PathBuf;
 
     #[test]
@@ -113,7 +117,6 @@ mod tests {
 
         assert!(!config.debug_mode);
         assert_eq!(config.direct_selection, None);
-        // Check that other defaults are preserved
         assert_eq!(config.search_paths, Config::default().search_paths);
     }
 
