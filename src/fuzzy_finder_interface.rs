@@ -22,7 +22,7 @@ use tracing::{debug, warn};
 /// to a tmux session corresponding to the selected directory.
 #[derive(Debug, Clone)]
 pub struct SelectedItem {
-    /// The name displayed to the user in the selection list (e.g., "my_project" or "[repo] worktree").
+    /// The name displayed to the user in the selection list (e.g., "`my_project`" or "[repo] worktree").
     pub display_name: String,
     /// The canonicalized, absolute filesystem path corresponding to the selected item.
     /// This path is used as the target directory for the tmux session.
