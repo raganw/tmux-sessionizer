@@ -11,16 +11,27 @@ use tracing::debug;
 /// Command-line arguments parsed by clap.
 #[derive(Parser, Debug)]
 #[command(name = "tmux-sessionizer")]
-#[command(author, version, about = "A utility for managing tmux sessions based on project directories.", long_about = None)]
+#[command(author, version)]
+#[command(
+    about = "Scans specified directories, identifies projects (including Git repositories and worktrees), and presents them via a fuzzy finder (like skim) for quick tmux session creation or switching.",
+    long_about = r#"
+tmux-sessionizer simplifies managing tmux sessions for your projects.
+
+It scans predefined search paths (like ~/Development) and any additional paths provided.
+It intelligently detects Git repositories and their linked worktrees, presenting them clearly.
+
+Use the fuzzy finder (skim) to quickly select a project and jump into its tmux session.
+If a session for the selected project exists, it attaches to it. Otherwise, it creates a new session.
+
+You can also provide a direct path or project name as an argument to bypass the fuzzy finder.
+"#
+)]
 pub(crate) struct CliArgs {
     /// Enable detailed debug logging.
-    #[arg(short, long, action = clap::ArgAction::SetTrue, help = "Enable debug mode")]
+    #[arg(short, long, action = clap::ArgAction::SetTrue, help = "Enable debug logging to stderr")]
     debug: bool,
     /// Directly select a path or name, skipping the fuzzy finder.
-    #[arg(
-        index = 1,
-        help = "Direct path or name to select. If provided, fuzzy finder is skipped."
-    )]
+    #[arg(index = 1, help = "Directly select a project by path or name, skipping the fuzzy finder", long_help = "Provide a full path (e.g., /path/to/project) or a project name (e.g., my_project) to directly create or switch to its tmux session without showing the fuzzy finder interface.")]
     direct_selection: Option<String>,
     // #[arg(long, value_delimiter = ',', help = "Additional search paths, comma-separated")]
     // additional_paths: Option<Vec<PathBuf>>,
