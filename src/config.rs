@@ -4,11 +4,14 @@
 // and the main `Config` struct that holds the application's runtime settings.
 
 use crate::error::{ConfigError, PathValidationError};
+use crate::path_utils::expand_tilde; // For expanding tilde in paths
 use clap::Parser;
+use dirs; // For locating user-specific directories
 use regex::Regex;
 use serde::Deserialize;
 use serde_derive::Deserialize;
 use std::fs;
+use toml; // For parsing TOML configuration files
 use std::io;
 use std::path::PathBuf;
 use tracing::{debug, error, info, trace, warn};
@@ -40,6 +43,57 @@ fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathVal
                     source: e,
                 }),
             }
+        }
+    }
+}
+
+/// Loads configuration from the TOML file if present.
+///
+/// Path: ~/.config/tmux-sessionizer/tmux-sessionizer.toml (platform-dependent)
+///
+/// Returns `Ok(Some(FileConfig))` if loaded and parsed successfully.
+/// Returns `Ok(None)` if the config directory is not found or the file does not exist.
+/// Returns `Err(ConfigError)` for IO errors during reading or parsing errors.
+fn load_config_file() -> std::result::Result<Option<FileConfig>, ConfigError> {
+    let config_dir = match dirs::config_dir() {
+        Some(dir) => dir,
+        None => {
+            warn!("Could not determine the user's config directory. Skipping configuration file load.");
+            // This case could return Err(ConfigError::CannotDetermineConfigDir) if it's considered fatal
+            // For now, treating as non-fatal, meaning no config file is loaded.
+            return Ok(None);
+        }
+    };
+
+    let mut config_path = config_dir;
+    config_path.push("tmux-sessionizer"); // Application-specific subdirectory
+    config_path.push("tmux-sessionizer.toml"); // The config file itself
+
+    debug!(path = %config_path.display(), "Attempting to load configuration from file");
+
+    if !config_path.exists() {
+        info!(path = %config_path.display(), "Configuration file not found. Proceeding with defaults and CLI arguments.");
+        return Ok(None);
+    }
+
+    info!(path = %config_path.display(), "Configuration file found. Reading and parsing.");
+    let content = match fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            error!(path = %config_path.display(), error = %e, "Failed to read configuration file content.");
+            return Err(ConfigError::FileReadError { path: config_path, source: e });
+        }
+    };
+
+    trace!(file_content = %content, "Successfully read configuration file content");
+    match toml::from_str::<FileConfig>(&content) {
+        Ok(parsed_config) => {
+            info!(path = %config_path.display(), "Successfully parsed configuration file.");
+            Ok(Some(parsed_config))
+        }
+        Err(e) => {
+            error!(path = %config_path.display(), error = %e, "Failed to parse TOML configuration from file.");
+            Err(ConfigError::FileParseError { path: config_path, source: e })
         }
     }
 }
@@ -130,29 +184,130 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Creates a new `Config` instance by parsing command-line arguments.
-    pub fn new() -> Self {
+    /// Creates a new `Config` instance by loading from file (if exists),
+    /// parsing command-line arguments, and merging them.
+    /// Also performs validation.
+    pub fn new() -> Result<Self, ConfigError> {
         let cli_args = CliArgs::parse();
         debug!(parsed_cli_args = ?cli_args, "Parsed command line arguments");
-        Self::from_args(cli_args)
+
+        // Load configuration from file
+        let file_config = match load_config_file() {
+            Ok(fc) => {
+                trace!(file_config_loaded = ?fc.is_some(), "Configuration file load attempt completed.");
+                fc
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to load or parse the configuration file. This is a fatal configuration error.");
+                return Err(e);
+            }
+        };
+
+        let config = Self::build(file_config, cli_args)?;
+        debug!(final_config = ?config, "Constructed final configuration");
+
+        // Validate paths after merging and expansion
+        config.validate()?;
+
+        Ok(config)
     }
 
-    /// Creates a `Config` instance from pre-parsed `CliArgs`. Useful for testing.
-    pub fn from_args(args: CliArgs) -> Self {
-        let mut default_config = Config::default();
+    /// Builds the final `Config` by merging defaults, file configuration, and CLI arguments.
+    /// Handles path expansion and regex compilation.
+    fn build(
+        file_config: Option<FileConfig>,
+        cli_args: CliArgs,
+    ) -> Result<Self, ConfigError> {
+        let defaults = Config::default();
+        let mut config = Config {
+            // Start with defaults. Note: search_paths from default are PathBufs with tildes.
+            search_paths: defaults.search_paths,
+            additional_paths: defaults.additional_paths,
+            exclude_patterns: defaults.exclude_patterns, // Default is empty Vec<Regex>
+            debug_mode: defaults.debug_mode,
+            direct_selection: defaults.direct_selection,
+        };
 
-        // Override default debug_mode if --debug flag is present
-        if args.debug {
-            default_config.debug_mode = true;
+        // 1. Apply File Configuration (if present)
+        if let Some(fc) = file_config {
+            debug!(?fc, "Applying configuration from file");
+            if let Some(search_paths_str) = fc.search_paths {
+                config.search_paths = search_paths_str.into_iter().map(PathBuf::from).collect();
+                trace!(paths = ?config.search_paths, "Overridden search_paths from file config (pre-expansion)");
+            }
+            if let Some(additional_paths_str) = fc.additional_paths {
+                config.additional_paths =
+                    additional_paths_str.into_iter().map(PathBuf::from).collect();
+                trace!(paths = ?config.additional_paths, "Overridden additional_paths from file config (pre-expansion)");
+            }
+            if let Some(exclude_patterns_str) = fc.exclude_patterns {
+                let mut regex_patterns = Vec::new();
+                for pattern_str in exclude_patterns_str {
+                    match Regex::new(&pattern_str) {
+                        Ok(re) => regex_patterns.push(re),
+                        Err(e) => {
+                            error!(pattern = %pattern_str, error = %e, "Invalid regex pattern in config file");
+                            return Err(ConfigError::InvalidRegex { // Using InvalidRegex from src/error.rs
+                                pattern: pattern_str,
+                                source: e,
+                            });
+                        }
+                    }
+                }
+                config.exclude_patterns = regex_patterns;
+                trace!(count = config.exclude_patterns.len(), "Loaded exclude_patterns from file config");
+            }
+        } else {
+            debug!("No configuration file loaded or found. Using defaults combined with CLI args.");
         }
 
-        // Set direct_selection from CLI args
-        default_config.direct_selection = args.direct_selection;
+        // 2. Apply CLI Argument Overrides (Highest Precedence)
+        debug!(?cli_args, "Applying CLI arguments");
+        if cli_args.debug {
+            config.debug_mode = true;
+            trace!("Overridden debug_mode from CLI args");
+        }
+        if cli_args.direct_selection.is_some() {
+            config.direct_selection = cli_args.direct_selection;
+            trace!(selection = ?config.direct_selection, "Overridden direct_selection from CLI args");
+        }
+        // TODO: Add CLI overrides for search_paths, additional_paths, exclude_patterns if/when implemented in CliArgs
 
-        default_config
+        // 3. Post-process: Expand Tilde and Normalize Paths for all relevant path collections
+        trace!("Expanding tilde and normalizing paths for search_paths and additional_paths");
+        config.search_paths = config
+            .search_paths
+            .into_iter()
+            .filter_map(|p| {
+                let expanded = expand_tilde(&p);
+                if expanded.is_none() && p.starts_with("~") {
+                    warn!(path = ?p.display(), "Could not expand tilde for path. It will be omitted.");
+                }
+                expanded
+            })
+            .collect();
+        trace!(expanded_search_paths = ?config.search_paths, "Search paths after tilde expansion");
+
+        config.additional_paths = config
+            .additional_paths
+            .into_iter()
+            .filter_map(|p| {
+                let expanded = expand_tilde(&p);
+                if expanded.is_none() && p.starts_with("~") {
+                    warn!(path = ?p.display(), "Could not expand tilde for additional path. It will be omitted.");
+                }
+                expanded
+            })
+            .collect();
+        trace!(expanded_additional_paths = ?config.additional_paths, "Additional paths after tilde expansion");
+        // Note: expand_tilde logs errors internally if home dir isn't found.
+        // We filter_map to omit paths that couldn't be expanded.
+
+        Ok(config)
     }
 
     /// Validates the configuration, checking if specified paths exist and are directories.
+    /// This should be called *after* paths are expanded and finalized.
     fn validate(&self) -> std::result::Result<(), ConfigError> {
         info!("Validating configuration paths");
         for path in self.search_paths.iter().chain(self.additional_paths.iter()) {
@@ -167,13 +322,21 @@ impl Config {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    // It's good practice to ensure tracing is initialized for tests that might log.
+    // use tracing_test::traced_test; // Requires adding tracing-test to dev-dependencies
+
+    // Helper function to get a realistic home directory for tests, if needed for assertions.
+    // Ensure `dirs` crate is available in test context.
+    fn get_home_dir_for_test() -> PathBuf {
+        dirs::home_dir().expect("Test environment must have a valid home directory for ~ expansion tests.")
+    }
 
     #[test]
-    fn test_default_config() {
+    fn test_default_config_values() {
         let config = Config::default();
-
         assert!(!config.debug_mode);
         assert_eq!(config.direct_selection, None);
+        // Default paths are stored with tilde before expansion by `build`
         assert_eq!(
             config.search_paths,
             vec![
@@ -187,43 +350,153 @@ mod tests {
     }
 
     #[test]
-    fn test_config_from_args_no_special_args() {
-        // The first element is traditionally the program name
-        let cli_args = CliArgs::try_parse_from(["tmux-sessionizer"]).unwrap();
-        let config = Config::from_args(cli_args);
-
-        assert!(!config.debug_mode);
-        assert_eq!(config.direct_selection, None);
-        assert_eq!(config.search_paths, Config::default().search_paths);
-    }
-
-    #[test]
-    fn test_config_from_args_with_debug() {
-        let cli_args = CliArgs::try_parse_from(["tmux-sessionizer", "--debug"]).unwrap();
-        let config = Config::from_args(cli_args);
+    fn test_build_with_cli_only_no_file_config() {
+        let cli_args = CliArgs {
+            debug: true,
+            direct_selection: Some("my_project_cli".to_string()),
+        };
+        // Pass None for file_config
+        let config = Config::build(None, cli_args).expect("Config build failed");
 
         assert!(config.debug_mode);
-        assert_eq!(config.direct_selection, None);
+        assert_eq!(config.direct_selection, Some("my_project_cli".to_string()));
+
+        // Check that default paths were expanded correctly
+        let home = get_home_dir_for_test();
+        let expected_search_paths = vec![
+            home.join("Development"),
+            home.join("Development/raganw"),
+            home.join(".config"),
+        ];
+        // Order might not be guaranteed after collect, so check for presence and length
+        assert_eq!(config.search_paths.len(), expected_search_paths.len());
+        for path in expected_search_paths {
+            assert!(config.search_paths.contains(&path), "Missing path: {:?}", path);
+        }
+
+        assert!(config.additional_paths.is_empty());
+        assert!(config.exclude_patterns.is_empty());
     }
 
     #[test]
-    fn test_config_from_args_with_direct_selection() {
-        let project_name = "my_project";
-        let cli_args = CliArgs::try_parse_from(["tmux-sessionizer", project_name]).unwrap();
-        let config = Config::from_args(cli_args);
+    fn test_build_with_file_config_overrides_defaults_no_cli_override() {
+        let file_config_content = FileConfig {
+            search_paths: Some(vec!["/etc/from_file".to_string(), "~/file_dev".to_string()]),
+            additional_paths: Some(vec!["/var/log/from_file".to_string()]),
+            exclude_patterns: Some(vec!["^\\.git$".to_string(), "target/".to_string()]),
+        };
+        let cli_args = CliArgs { // CLI args that don't override file config for these fields
+            debug: false,
+            direct_selection: None,
+        };
 
-        assert!(!config.debug_mode);
-        assert_eq!(config.direct_selection, Some(project_name.to_string()));
+        let config = Config::build(Some(file_config_content), cli_args).expect("Config build failed");
+
+        assert!(!config.debug_mode); // From CLI (or default if CLI didn't set)
+        assert_eq!(config.direct_selection, None); // From CLI (or default)
+
+        // Check paths are from file_config and expanded
+        let home = get_home_dir_for_test();
+        let expected_search_paths = vec![
+            PathBuf::from("/etc/from_file"),
+            home.join("file_dev"),
+        ];
+        assert_eq!(config.search_paths.len(), expected_search_paths.len());
+        for path in expected_search_paths {
+            assert!(config.search_paths.contains(&path), "Missing search path: {:?}", path);
+        }
+
+        let expected_additional_paths = vec![PathBuf::from("/var/log/from_file")];
+        assert_eq!(config.additional_paths, expected_additional_paths);
+
+
+        // Check exclude patterns were compiled
+        assert_eq!(config.exclude_patterns.len(), 2);
+        assert!(config.exclude_patterns[0].is_match(".git"));
+        assert!(!config.exclude_patterns[0].is_match("somegit")); // Test exactness of ^$
+        assert!(config.exclude_patterns[1].is_match("target/debug"));
+        assert!(config.exclude_patterns[1].is_match("/some/path/target/release"));
     }
 
     #[test]
-    fn test_config_from_args_with_debug_and_direct_selection() {
-        let project_name = "another_project";
-        let cli_args =
-            CliArgs::try_parse_from(["tmux-sessionizer", "--debug", project_name]).unwrap();
-        let config = Config::from_args(cli_args);
+    fn test_build_cli_overrides_file_config_and_defaults() {
+        let file_config_content = FileConfig {
+            search_paths: Some(vec!["/file/path_search".to_string()]), // Will be overridden by default if CLI for paths is not implemented
+            additional_paths: Some(vec!["/file/path_add".to_string()]), // Same
+            exclude_patterns: Some(vec!["file_pattern".to_string()]), // Same
+        };
+        let cli_args = CliArgs {
+            debug: true, // CLI overrides default false and any file setting (if file had debug)
+            direct_selection: Some("cli_selected_project".to_string()), // CLI overrides default None and file
+        };
+        // Note: Current CliArgs doesn't have fields for paths/patterns.
+        // So, file paths/patterns will take precedence over defaults if present.
+        // If CLI args for these are added later, this test would need adjustment.
 
-        assert!(config.debug_mode);
-        assert_eq!(config.direct_selection, Some(project_name.to_string()));
+        let config = Config::build(Some(file_config_content), cli_args).expect("Config build failed");
+
+        assert!(config.debug_mode); // From CLI
+        assert_eq!(config.direct_selection, Some("cli_selected_project".to_string())); // From CLI
+
+        // Since CLI doesn't override paths/patterns, these come from the file
+        assert_eq!(config.search_paths, vec![PathBuf::from("/file/path_search")]);
+        assert_eq!(config.additional_paths, vec![PathBuf::from("/file/path_add")]);
+        assert_eq!(config.exclude_patterns.len(), 1);
+        assert!(config.exclude_patterns[0].is_match("some_file_pattern_here"));
     }
+
+    #[test]
+    fn test_build_invalid_regex_in_file_config_returns_error() {
+        let file_config_with_bad_regex = FileConfig {
+            search_paths: None,
+            additional_paths: None,
+            exclude_patterns: Some(vec!["[invalidRegex".to_string()]), // This is an invalid regex
+        };
+        let cli_args = CliArgs { debug: false, direct_selection: None };
+
+        let result = Config::build(Some(file_config_with_bad_regex), cli_args);
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            ConfigError::InvalidRegex { pattern, .. } => {
+                assert_eq!(pattern, "[invalidRegex");
+            }
+            other_error => panic!("Expected InvalidRegex error, got {:?}", other_error),
+        }
+    }
+
+    #[test]
+    fn test_build_empty_file_config_uses_defaults_and_cli() {
+        let empty_file_config = FileConfig::default(); // All fields are Option<Vec<String>>, so default is all None
+        let cli_args = CliArgs {
+            debug: true,
+            direct_selection: Some("cli_only_project".to_string()),
+        };
+
+        let config = Config::build(Some(empty_file_config), cli_args).expect("Config build failed");
+
+        assert!(config.debug_mode); // From CLI
+        assert_eq!(config.direct_selection, Some("cli_only_project".to_string())); // From CLI
+
+        // Paths should be defaults, expanded
+        let home = get_home_dir_for_test();
+        let expected_search_paths = vec![
+            home.join("Development"),
+            home.join("Development/raganw"),
+            home.join(".config"),
+        ];
+        assert_eq!(config.search_paths.len(), expected_search_paths.len());
+        for path in expected_search_paths {
+            assert!(config.search_paths.contains(&path), "Missing default search path: {:?}", path);
+        }
+        assert!(config.additional_paths.is_empty()); // Default
+        assert!(config.exclude_patterns.is_empty()); // Default
+    }
+
+    // TODO: Add tests for Config::new() that mock load_config_file and CliArgs::parse()
+    // This would require more advanced mocking or refactoring for testability.
+    // For now, Config::build is the main unit under test for merging logic.
+
+    // TODO: Add tests for `validate()` method, potentially mocking `fs::metadata`
+    // or using temp directories. For now, assuming `validate_path_is_directory` is tested elsewhere
+    // or relying on integration tests for full validation flow.
 }
