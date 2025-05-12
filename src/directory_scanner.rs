@@ -106,8 +106,8 @@ impl<'a> DirectoryScanner<'a> {
         {
             let mut processed_paths_guard =
                 processed_resolved_paths_mux.lock().map_err(|e| {
-                    error!("Mutex poisoned while accessing processed_resolved_paths: {}", e);
-                    anyhow::anyhow!("Mutex poisoned while accessing processed_resolved_paths: {}", e)
+                    error!("Mutex poisoned while accessing processed_resolved_paths: {e}");
+                    crate::error::AppError::MutexError(format!("Mutex poisoned while accessing processed_resolved_paths: {e}"))
                 })?;
 
             if processed_paths_guard.contains(&resolved_path) {
@@ -211,16 +211,30 @@ impl<'a> DirectoryScanner<'a> {
                                                 warn!(wt_path = %wt_path_from_git.display(), resolved_wt_path = %canonical_wt_path.display(), "Linked worktree path is not a directory, skipping");
                                                 continue;
                                             }
-                                            // Need to check if this canonical_wt_path is already processed by another top-level call
-                                            // This check is complex here. The main Mutex handles top-level resolved_paths.
-                                            // If a worktree's path was *also* a top-level scan path, it would be caught by the Mutex.
-                                            // If not, it's added here. This is generally fine.
-                                            current_entries.push(Self::add_worktree_entry(
-                                                wt_path_from_git.clone(),
-                                                canonical_wt_path,
-                                                &main_repo_ref_path_for_display,
-                                                Some(worktree_info.name),
-                                            ));
+
+                                            // Check and claim the canonical_wt_path in the shared set.
+                                            let mut processed_paths_guard = processed_resolved_paths_mux.lock().map_err(|e| {
+                                                    error!("Mutex poisoned while checking linked worktree {}: {}", canonical_wt_path.display(), e);
+                                                    crate::error::AppError::MutexError(format!("Mutex poisoned while checking linked worktree {}: {}", canonical_wt_path.display(), e))
+                                                })?;
+
+                                            if processed_paths_guard.contains(&canonical_wt_path) {
+                                                debug!(path = %canonical_wt_path.display(), "Skipping linked worktree as its path is already processed or claimed by another scan item");
+                                                // Release guard explicitly as we are continuing the loop
+                                                drop(processed_paths_guard);
+                                            } else {
+                                                // Not processed, so claim it and add the entry.
+                                                processed_paths_guard.insert(canonical_wt_path.clone());
+                                                // Release guard explicitly after insertion.
+                                                drop(processed_paths_guard);
+
+                                                current_entries.push(Self::add_worktree_entry(
+                                                    wt_path_from_git.clone(),
+                                                    canonical_wt_path, // This is the resolved path of the worktree
+                                                    &main_repo_ref_path_for_display,
+                                                    Some(worktree_info.name),
+                                                ));
+                                            }
                                         }
                                         Err(e) => {
                                             warn!(wt_path = %wt_path_from_git.display(), error = %e, "Could not canonicalize linked worktree path, skipping");

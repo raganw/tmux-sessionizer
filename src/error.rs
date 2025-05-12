@@ -26,6 +26,9 @@ pub enum AppError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Mutex synchronization error: {0}")]
+    MutexError(String),
 }
 
 /// A type alias for `Result<T, AppError>` for use throughout the application.
