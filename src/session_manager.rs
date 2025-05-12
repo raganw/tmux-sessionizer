@@ -322,11 +322,6 @@ impl SessionManager {
     }
 }
 
-            session_name,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
