@@ -593,15 +593,23 @@ mod tests {
     #[test]
     fn test_load_config_valid_file() {
         let temp_dir = tempdir().unwrap();
+        // Corrected TOML: Backslash in regex needs to be escaped for TOML string literal
         let content = r#"
-            search_paths = ["/valid/path", "~/valid/tilde/path"]
-            additional_paths = ["/extra/path"]
-            exclude_patterns = ["^ignore_this", ".*\.log"]
-        "#;
-        let base_path = setup_temp_config_dir(&temp_dir, true, true, Some(content));
+search_paths = ["/valid/path", "~/valid/tilde/path"]
+additional_paths = ["/extra/path"]
+exclude_patterns = ["^ignore_this", ".*\\.log"]
+"#;
+        // Trim potential extra whitespace just in case
+        let trimmed_content = content.trim();
+
+        let base_path = setup_temp_config_dir(&temp_dir, true, true, Some(trimmed_content));
         let result = load_config_from_dir(&base_path);
 
-        assert!(result.is_ok());
+        // Use expect for a clearer panic message if it's an Err
+        let file_config_option = result.expect("load_config_from_dir returned Err for valid TOML");
+
+        // Now assert that we got Some(config)
+        assert!(file_config_option.is_some(), "load_config_from_dir returned Ok(None) unexpectedly");
         let file_config = result.unwrap();
         assert!(file_config.is_some());
         let config = file_config.unwrap();
