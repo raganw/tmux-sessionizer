@@ -280,7 +280,7 @@ impl<'a> DirectoryScanner<'a> {
         }
     }
 
-    pub fn scan(&self) -> Result<Vec<DirectoryEntry>> {
+    pub fn scan(&self) -> Vec<DirectoryEntry> {
         let scan_span = span!(Level::INFO, "directory_scan");
         let _enter = scan_span.enter();
         info!("Starting directory scan");
@@ -370,7 +370,7 @@ impl<'a> DirectoryScanner<'a> {
 
         info!(count = all_entries.len(), "Directory scan complete (after parallel processing and consolidation)");
         debug!(final_entries = ?all_entries, "Final list of directory entries");
-        Ok(all_entries)
+        all_entries
     }
 }
 
@@ -476,7 +476,7 @@ mod tests {
         config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan children of base_dir
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan().expect("Scan failed in test");
+        let entries = scanner.scan();
 
         let canonical_container_path = fs::canonicalize(&container_path).unwrap();
         let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap();
@@ -591,7 +591,7 @@ mod tests {
         config.search_paths = vec![base_dir.path().to_path_buf()];
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan().expect("Scan failed in test");
+        let entries = scanner.scan();
 
         let canonical_main_repo_dir = fs::canonicalize(&main_repo_dir).unwrap();
         // wt1 and wt2 are children of non_repo_container_dir_path.
@@ -660,7 +660,7 @@ mod tests {
         let mut config = default_test_config();
         config.search_paths = vec![base_dir.path().to_path_buf()];
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan().expect("Scan failed in test");
+        let entries = scanner.scan();
 
         // Expected: plain_project, git_project, central_bare.git, worktree_one
         // central_bare.git will list worktree_one.
@@ -737,7 +737,7 @@ mod tests {
         config.additional_paths = vec![additional_project_path.clone()];
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan().expect("Scan failed in test");
+        let entries = scanner.scan();
 
         assert_eq!(entries.len(), 2, "Entries: {:?}", &entries);
 
@@ -768,7 +768,7 @@ mod tests {
         config.exclude_patterns = vec![Regex::new("_exclude$").unwrap()];
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan().expect("Scan failed in test");
+        let entries = scanner.scan();
 
         assert_eq!(entries.len(), 1);
 
@@ -798,7 +798,7 @@ mod tests {
         config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan base_dir children
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan().expect("Scan failed in test");
+        let entries = scanner.scan();
 
         assert_eq!(
             entries.len(),
@@ -832,7 +832,7 @@ mod tests {
         config.additional_paths = vec![hidden_config_path.clone()]; // Explicitly add .myconfig
 
         let scanner = DirectoryScanner::new(&config);
-        let entries = scanner.scan().expect("Scan failed in test");
+        let entries = scanner.scan();
 
         assert_eq!(
             entries.len(),
