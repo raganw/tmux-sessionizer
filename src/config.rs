@@ -31,7 +31,11 @@ pub(crate) struct CliArgs {
     #[arg(short, long, action = clap::ArgAction::SetTrue, help = "Enable debug logging to stderr")]
     debug: bool,
     /// Directly select a path or name, skipping the fuzzy finder.
-    #[arg(index = 1, help = "Directly select a project by path or name, skipping the fuzzy finder", long_help = "Provide a full path (e.g., /path/to/project) or a project name (e.g., my_project) to directly create or switch to its tmux session without showing the fuzzy finder interface.")]
+    #[arg(
+        index = 1,
+        help = "Directly select a project by path or name, skipping the fuzzy finder",
+        long_help = "Provide a full path (e.g., /path/to/project) or a project name (e.g., my_project) to directly create or switch to its tmux session without showing the fuzzy finder interface."
+    )]
     direct_selection: Option<String>,
     // #[arg(long, value_delimiter = ',', help = "Additional search paths, comma-separated")]
     // additional_paths: Option<Vec<PathBuf>>,
