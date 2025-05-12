@@ -1,7 +1,45 @@
+//! Utility functions for working with file paths.
+
 use std::path::{Path, PathBuf};
 use tracing::{debug, trace};
 
-// Helper function for tilde expansion
+/// Expands the tilde (`~`) character in a path to the user's home directory.
+///
+/// If the path does not start with `~`, it is returned as is.
+/// If the home directory cannot be determined, `None` is returned.
+///
+/// # Arguments
+///
+/// * `path` - The `Path` to potentially expand.
+///
+/// # Returns
+///
+/// * `Some(PathBuf)` - The expanded path if tilde expansion was successful or not needed.
+/// * `None` - If the path starts with `~` but the home directory could not be found.
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+/// use tmux_sessionizer::path_utils::expand_tilde;
+///
+/// // Assuming home directory is /home/user
+/// if let Some(home_dir) = dirs::home_dir() {
+///     let path = Path::new("~/Documents");
+///     let expected = home_dir.join("Documents");
+///     assert_eq!(expand_tilde(path), Some(expected));
+///
+///     let path_no_tilde = Path::new("/tmp/file");
+///     assert_eq!(expand_tilde(path_no_tilde), Some(path_no_tilde.to_path_buf()));
+///
+///     let just_tilde = Path::new("~");
+///     assert_eq!(expand_tilde(just_tilde), Some(home_dir));
+/// } else {
+///     // Test behavior when home dir is not found
+///     let path = Path::new("~/Documents");
+///     assert_eq!(expand_tilde(path), None);
+/// }
+/// ```
 pub fn expand_tilde(path: &Path) -> Option<PathBuf> {
     trace!(input_path = %path.display(), "Attempting tilde expansion");
     if path.starts_with("~") {
