@@ -1,20 +1,33 @@
-// Add these lines at the beginning of the file
+//! # tmux-sessionizer
+//!
+//! A utility to quickly navigate and manage tmux sessions based on directories,
+//! Git repositories, and Git worktrees. It scans configured paths, presents
+//! options via a fuzzy finder (or direct selection), and creates or switches
+//! to the corresponding tmux session.
+
 mod config;
-mod container_detector; // Add this line
+mod container_detector;
 mod directory_scanner;
-mod error; // Add this line
+mod error;
 mod fuzzy_finder_interface;
 mod git_repository_handler;
-mod path_utils; // Add this line
+mod path_utils;
 mod session_manager;
 
-use crate::config::Config; // Add this line
-use crate::directory_scanner::DirectoryScanner; // Add this line to import DirectoryScanner
-use crate::error::Result; // Add this line
-use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem}; // Import FuzzyFinder and SelectedItem
-use tracing::Level; // debug is already here, Level is used by setup_tracing
+use crate::config::Config;
+use crate::directory_scanner::DirectoryScanner;
+use crate::error::Result;
+use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem};
+use tracing::Level;
 
-// Add this function before main
+/// Sets up the global tracing subscriber.
+///
+/// Initializes `tracing_subscriber` based on the provided debug mode flag.
+/// Logs are directed to standard output.
+///
+/// # Arguments
+///
+/// * `debug_mode` - If `true`, sets the logging level to `DEBUG`, otherwise `INFO`.
 fn setup_tracing(debug_mode: bool) {
     let level = if debug_mode {
         Level::DEBUG
@@ -24,9 +37,20 @@ fn setup_tracing(debug_mode: bool) {
     tracing_subscriber::fmt().with_max_level(level).init();
 }
 
-// Modify the main function as follows:
+/// The main entry point of the application.
+///
+/// Orchestrates the entire process:
+/// 1. Parses command-line arguments and initializes configuration.
+/// 2. Sets up logging using the `tracing` crate.
+/// 3. Scans configured directories to find potential projects (plain directories, Git repos, worktrees).
+/// 4. Handles direct selection if provided via arguments, otherwise presents a fuzzy finder interface.
+/// 5. Based on the user's selection, determines the target directory and desired tmux session name.
+/// 6. Interacts with the tmux server to check for existing sessions, create new ones, or switch/attach.
+///
+/// # Returns
+///
+/// * `Result<()>` - Returns `Ok(())` on successful execution, or an `AppError` if any step fails.
 fn main() -> Result<()> {
-    // Changed to return crate::error::Result for error propagation
     // 1. Parse command-line arguments and create a Config instance
     let config = Config::new();
 
@@ -39,9 +63,6 @@ fn main() -> Result<()> {
     if config.debug_mode {
         tracing::debug!("Loaded configuration: {:?}", config);
     }
-
-    // The original tracing::debug!("Debug mode is enabled."); can be removed
-    // as the config log above will show the debug_mode status.
 
     // 2. Create a DirectoryScanner instance and scan directories
     let scanner = DirectoryScanner::new(&config);
