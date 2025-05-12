@@ -1,6 +1,6 @@
-use crate::directory_scanner::DirectoryEntry; // For creating Selection
-use crate::error::{AppError, Result}; // Add AppError here
-use std::env; // For checking TMUX env var
+use crate::directory_scanner::DirectoryEntry;
+use crate::error::{AppError, Result};
+use std::env;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use tmux_interface::{
