@@ -1353,12 +1353,12 @@ mod tests {
         );
         assert_entry_properties(&entries, "bare_repo.git", "GitRepository", "bare_repo.git");
 
-        let wt_a_entry = entries
+        let entry_wt_a = entries
             .iter()
             .find(|e| e.resolved_path.ends_with("wt_a"))
             .expect("wt_a not found");
-        assert_eq!(wt_a_entry.display_name, "[bare_repo.git] wt_a");
-        match &wt_a_entry.entry_type {
+        assert_eq!(entry_wt_a.display_name, "[bare_repo.git] wt_a");
+        match &entry_wt_a.entry_type {
             DirectoryType::GitWorktree {
                 main_worktree_path, ..
             } => {
@@ -1370,16 +1370,16 @@ mod tests {
             }
             _ => panic!(
                 "wt_a Expected GitWorktree, found {:?}",
-                wt_a_entry.entry_type
+                entry_wt_a.entry_type
             ),
         }
 
-        let wt_b_entry = entries
+        let entry_wt_b = entries
             .iter()
             .find(|e| e.resolved_path.ends_with("wt_b"))
             .expect("wt_b not found");
-        assert_eq!(wt_b_entry.display_name, "[bare_repo.git] wt_b");
-        match &wt_b_entry.entry_type {
+        assert_eq!(entry_wt_b.display_name, "[bare_repo.git] wt_b");
+        match &entry_wt_b.entry_type {
             DirectoryType::GitWorktree {
                 main_worktree_path, ..
             } => {
@@ -1390,7 +1390,7 @@ mod tests {
             }
             _ => panic!(
                 "wt_b Expected GitWorktree, found {:?}",
-                wt_b_entry.entry_type
+                entry_wt_b.entry_type
             ),
         }
 
@@ -1404,16 +1404,16 @@ mod tests {
         );
 
         // Ensure no duplicates for worktrees
-        let wt_a_count = entries
+        let count_wt_a = entries
             .iter()
             .filter(|e| e.resolved_path.ends_with("wt_a"))
             .count();
-        assert_eq!(wt_a_count, 1, "wt_a should appear exactly once");
-        let wt_b_count = entries
+        assert_eq!(count_wt_a, 1, "wt_a should appear exactly once");
+        let count_wt_b = entries
             .iter()
             .filter(|e| e.resolved_path.ends_with("wt_b"))
             .count();
-        assert_eq!(wt_b_count, 1, "wt_b should appear exactly once");
+        assert_eq!(count_wt_b, 1, "wt_b should appear exactly once");
 
         // Total entries: bare_repo.git, wt_a, wt_b = 3
         assert_eq!(
