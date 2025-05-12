@@ -439,16 +439,49 @@ mod tests {
                 .expect("Failed to create initial commit in bare repo");
         }
 
-        // For a bare repo, worktrees are added relative to its path, but the actual worktree dir can be elsewhere.
-        // We need to ensure the worktree_path exists.
-        fs::create_dir_all(worktree_path.parent().unwrap())
-            .expect("Failed to create parent for worktree path");
-        let opts = WorktreeAddOptions::new();
+        let mut opts = WorktreeAddOptions::new();
+        // opts.reference(Some(&bare_repo.head().unwrap().peel_to_commit().unwrap().id().into()));
+        // The above is more robust but requires a valid HEAD. Simpler:
+        // opts.reference(None); // This should checkout HEAD by default if available
+
         bare_repo
-            .worktree(worktree_name, worktree_path, Some(&opts))
-            .expect("Failed to add worktree");
-        Repository::open(worktree_path).expect("Failed to open added worktree")
+            .worktree(worktree_name, worktree_path, Some(&mut opts))
+            .expect(&format!(
+                "Failed to add worktree '{}' at path {:?}",
+                worktree_name, worktree_path
+            ));
+        // Repository::open(worktree_path).expect("Failed to open added worktree") // Removed return value
     }
+
+    // *** ADD THIS FUNCTION ***
+    // New helper: Add a worktree to a standard repository
+    fn add_worktree_to_standard_repo(
+        repo_path: &Path,      // Path to the standard repository's working directory
+        worktree_name: &str,   // Name for the new worktree (e.g., "feature-branch")
+        worktree_checkout_path: &Path, // Path where the new worktree will be checked out
+    ) {
+        let repo = Repository::open(repo_path).expect("Failed to open repo for adding worktree");
+        if repo.head().is_err() {
+            let mut index = repo.index().expect("Failed to get repo index");
+            // Create an empty file to be able to create a non-empty tree
+            let repo_file_path = repo_path.join("initial_file.txt");
+            File::create(&repo_file_path).expect("Failed to create initial file in repo");
+            index.add_path(Path::new("initial_file.txt")).expect("Failed to add file to index");
+
+            let id = index.write_tree().expect("Failed to write tree");
+            let tree = repo.find_tree(id).expect("Failed to find tree");
+            let sig = Signature::now("test", "test@example.com").expect("Failed to create signature");
+            repo.commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
+                .expect("Failed to create initial commit");
+        }
+        // Ensure the worktree path parent directory exists
+        if let Some(parent) = worktree_checkout_path.parent() {
+            fs::create_dir_all(parent).expect("Failed to create parent directory for worktree");
+        }
+        repo.worktree(worktree_name, worktree_checkout_path, None) // None for default options
+            .expect(&format!("Failed to add worktree {} at {:?}", worktree_name, worktree_checkout_path));
+    }
+
 
     // Helper to create a default config for tests
     fn default_test_config() -> Config {
