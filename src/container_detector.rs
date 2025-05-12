@@ -463,10 +463,10 @@ mod tests {
 
     #[test]
     fn test_check_if_worktree_container_different_main_repos() {
-        let main_repo_a_dir = tempdir().unwrap();
-        let main_repo_a = init_bare_repo(main_repo_a_dir.path());
-        let main_repo_b_dir = tempdir().unwrap();
-        let main_repo_b = init_bare_repo(main_repo_b_dir.path());
+        let dir_main_repo_a = tempdir().unwrap();
+        let main_repo_a = init_bare_repo(dir_main_repo_a.path());
+        let dir_main_repo_b = tempdir().unwrap();
+        let main_repo_b = init_bare_repo(dir_main_repo_b.path());
 
         let container_dir = tempdir().unwrap();
         let wt_a_path = container_dir.path().join("wt_a");
