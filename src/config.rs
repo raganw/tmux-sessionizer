@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn test_config_from_args_no_special_args() {
         // The first element is traditionally the program name
-        let cli_args = CliArgs::try_parse_from(&["tmux-sessionizer"]).unwrap();
+        let cli_args = CliArgs::try_parse_from(["tmux-sessionizer"]).unwrap();
         let config = Config::from_args(cli_args);
 
         assert!(!config.debug_mode);
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn test_config_from_args_with_debug() {
-        let cli_args = CliArgs::try_parse_from(&["tmux-sessionizer", "--debug"]).unwrap();
+        let cli_args = CliArgs::try_parse_from(["tmux-sessionizer", "--debug"]).unwrap();
         let config = Config::from_args(cli_args);
 
         assert!(config.debug_mode);
@@ -133,7 +133,7 @@ mod tests {
     fn test_config_from_args_with_direct_selection() {
         let project_name = "my_project";
         let cli_args =
-            CliArgs::try_parse_from(&["tmux-sessionizer", project_name]).unwrap();
+            CliArgs::try_parse_from(["tmux-sessionizer", project_name]).unwrap();
         let config = Config::from_args(cli_args);
 
         assert!(!config.debug_mode);
@@ -144,7 +144,7 @@ mod tests {
     fn test_config_from_args_with_debug_and_direct_selection() {
         let project_name = "another_project";
         let cli_args =
-            CliArgs::try_parse_from(&["tmux-sessionizer", "--debug", project_name]).unwrap();
+            CliArgs::try_parse_from(["tmux-sessionizer", "--debug", project_name]).unwrap();
         let config = Config::from_args(cli_args);
 
         assert!(config.debug_mode);
