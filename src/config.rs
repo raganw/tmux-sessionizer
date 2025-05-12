@@ -8,7 +8,6 @@ use crate::path_utils::expand_tilde; // For expanding tilde in paths
 use clap::Parser;
 use dirs; // For locating user-specific directories
 use regex::Regex;
-use serde::Deserialize;
 use serde_derive::Deserialize;
 use std::fs;
 use toml; // For parsing TOML configuration files
@@ -58,10 +57,8 @@ fn load_config_file() -> std::result::Result<Option<FileConfig>, ConfigError> {
     let config_dir = match dirs::config_dir() {
         Some(dir) => dir,
         None => {
-            warn!("Could not determine the user's config directory. Skipping configuration file load.");
-            // This case could return Err(ConfigError::CannotDetermineConfigDir) if it's considered fatal
-            // For now, treating as non-fatal, meaning no config file is loaded.
-            return Ok(None);
+            error!("Could not determine the user's config directory.");
+            return Err(ConfigError::CannotDetermineConfigDir);
         }
     };
 
@@ -522,7 +519,7 @@ mod tests {
                 config_path.push("tmux-sessionizer.toml");
                 let mut file = File::create(&config_path).expect("Failed to create temp config file");
                 if let Some(content) = file_content {
-                    writeln!(file, "{}", content).expect("Failed to write to temp config file");
+                    write!(file, "{}", content).expect("Failed to write to temp config file");
                 }
             }
         }
@@ -609,9 +606,24 @@ mod tests {
         assert!(file_config.is_some());
         let config = file_config.unwrap();
 
-        assert_eq!(config.search_paths, Some(vec!["/valid/path".to_string(), "~/valid/tilde/path".to_string()]));
-        assert_eq!(config.additional_paths, Some(vec!["/extra/path".to_string()]));
-        assert_eq!(config.exclude_patterns, Some(vec!["^ignore_this".to_string(), ".*\\.log".to_string()]));
+        assert_eq!(
+            config.search_paths,
+            Some(vec![
+                "/valid/path".to_string(),
+                "~/valid/tilde/path".to_string()
+            ])
+        );
+        assert_eq!(
+            config.additional_paths,
+            Some(vec!["/extra/path".to_string()])
+        );
+        assert_eq!(
+            config.exclude_patterns,
+            Some(vec![
+                "^ignore_this".to_string(),
+                ".*\\.log".to_string()
+            ])
+        );
     }
 
     #[test]

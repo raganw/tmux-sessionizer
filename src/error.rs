@@ -25,9 +25,7 @@ pub enum ConfigError {
         source: toml::de::Error,
     },
 
-    #[error("Invalid configuration value: {message}")]
-    Validation { message: String }, // General validation error
-
+    // The `Validation` variant was removed as it was unused.
     #[error("Invalid regex pattern '{pattern}' in configuration: {source}")]
     InvalidRegex {
         pattern: String,
