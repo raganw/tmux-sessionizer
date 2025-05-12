@@ -1,8 +1,7 @@
-
-use crate::error::Result; // Add this line
-use git2::{Error as Git2Error, Repository, WorktreeAddOptions}; // Added WorktreeAddOptions for tests, aliased Error
+use crate::error::Result;
+use git2::{Error as Git2Error, Repository};
 use std::path::{Path, PathBuf};
-use tracing::{debug, error, span, warn, Level}; // Added span and Level
+use tracing::{Level, debug, error, span, warn};
 
 /// Checks if the given path is a Git repository.
 /// This could be a plain repository (with a .git subdirectory) or a bare repository.
@@ -17,59 +16,13 @@ pub fn is_git_repository(path: &Path) -> bool {
             // but for debugging discovery, it can be useful.
             // Error code -3 (NotFound) is common for non-repo paths.
             if e.code() != git2::ErrorCode::NotFound || e.class() != git2::ErrorClass::Repository {
-                 warn!(path = %path.display(), error = %e, "Failed to open path as Git repository, assuming not a repo");
+                warn!(path = %path.display(), error = %e, "Failed to open path as Git repository, assuming not a repo");
             } else {
                 debug!(path = %path.display(), "Path is not a Git repository (standard check)");
             }
             false
         }
     }
-}
-
-/// Gets the path to the .git directory for a repository.
-/// For a normal repository, this is `path/.git/`.
-/// For a bare repository, this is `path/`.
-/// For a worktree, this points to the .git file which then points to the actual gitdir in the parent repo.
-pub fn get_git_dir_path(repo_path: &Path) -> Result<PathBuf> {
-    let repo = Repository::open(repo_path)?;
-    let git_dir = repo.path().to_path_buf();
-    debug!(repo_path = %repo_path.display(), git_dir = %git_dir.display(), "Found .git directory");
-    Ok(git_dir)
-}
-
-/// Checks if a Git repository at the given path is a bare repository.
-pub fn is_bare_repository(repo_path: &Path) -> Result<bool> {
-    match Repository::open(repo_path) {
-        Ok(repo) => {
-            let is_bare = repo.is_bare();
-            debug!(path = %repo_path.display(), is_bare, "Checked if repository is bare");
-            Ok(is_bare)
-        }
-        Err(e) => {
-            error!(path = %repo_path.display(), error = %e, "Failed to open repository to check if bare");
-            Err(e.into()) // Convert git2::Error to AppError
-        }
-    }
-}
-
-// Additional helper that might be useful later, checks if it's a worktree's .git file
-// or a common .git directory.
-// A .git file in a worktree typically contains: `gitdir: /path/to/parent/repo/.git/worktrees/worktree-name`
-pub fn is_worktree_git_dir(git_dir_path: &Path) -> bool {
-    if git_dir_path.is_file() {
-        // A .git file (not directory) usually indicates a worktree or submodule.
-        // For worktrees, it contains a `gitdir:` line.
-        // For submodules, it contains a `gitdir:` line pointing into the parent's .git/modules.
-        // We are primarily interested in worktrees here.
-        if let Ok(content) = std::fs::read_to_string(git_dir_path) {
-            if content.trim().starts_with("gitdir:") {
-                debug!(path = %git_dir_path.display(), "Path is a .git file (likely worktree or submodule)");
-                return true; // Could be a worktree or submodule .git file
-            }
-        }
-    }
-    debug!(path = %git_dir_path.display(), "Path is not a .git file (likely a .git directory or not a git dir)");
-    false
 }
 
 /// Represents a Git worktree with its name and path.
@@ -89,7 +42,10 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
     let repo = Repository::open(repo_path)?;
 
     let worktrees = repo.worktrees()?;
-    debug!(count = worktrees.len(), "Found linked worktrees (raw count from git2)");
+    debug!(
+        count = worktrees.len(),
+        "Found linked worktrees (raw count from git2)"
+    );
 
     let mut result = Vec::new();
     for wt_name_bytes in worktrees.iter() {
@@ -114,7 +70,10 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
             warn!("Found a worktree with a non-UTF8 name, skipping");
         }
     }
-    debug!(collected_count = result.len(), "Successfully collected linked worktree details");
+    debug!(
+        collected_count = result.len(),
+        "Successfully collected linked worktree details"
+    );
     Ok(result)
 }
 
@@ -123,7 +82,8 @@ pub fn list_linked_worktrees(repo_path: &Path) -> Result<Vec<Worktree>> {
 /// If `path_in_repo` is part of a bare repository, this returns the path to the bare repository itself.
 /// This works whether `path_in_repo` is in the main worktree or a linked worktree.
 pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
-    let path_span = span!(Level::DEBUG, "get_main_repository_path", path_in_repo = %path_in_repo.display());
+    let path_span =
+        span!(Level::DEBUG, "get_main_repository_path", path_in_repo = %path_in_repo.display());
     let _enter = path_span.enter();
 
     let repo = Repository::open(path_in_repo)?;
@@ -135,7 +95,7 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
         let common_dir = repo.commondir();
         debug!(path_in_repo = %path_in_repo.display(), worktree_commondir = %common_dir.display(), "Determining main path for worktree");
         // Check if the repository at common_dir is bare
-        match Repository::open(&common_dir) {
+        match Repository::open(common_dir) {
             Ok(main_repo_at_commondir) => {
                 if main_repo_at_commondir.is_bare() {
                     common_dir.to_path_buf() // If main repo is bare, its path is common_dir
@@ -157,9 +117,11 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
     } else {
         // For a non-bare, non-worktree repository, its workdir is the main repository path.
         debug!(path_in_repo = %path_in_repo.display(), "Repository is non-bare, non-worktree, main path is repo.workdir()");
-        repo.workdir().ok_or_else(|| Git2Error::from_str("Non-bare, non-worktree repository has no workdir"))?.to_path_buf()
+        repo.workdir()
+            .ok_or_else(|| Git2Error::from_str("Non-bare, non-worktree repository has no workdir"))?
+            .to_path_buf()
     };
-    
+
     debug!(candidate_main_path = %main_path_candidate.display(), "Candidate main repository path determined");
 
     // Canonicalize the determined path.
@@ -169,12 +131,11 @@ pub fn get_main_repository_path(path_in_repo: &Path) -> Result<PathBuf> {
     Ok(canonical_path)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{self, File};
-    use std::io::Write;
+    use git2::WorktreeAddOptions;
+    use std::fs::{self};
     use tempfile::tempdir;
 
     // Helper to initialize a standard git repo
@@ -209,85 +170,15 @@ mod tests {
     }
 
     #[test]
-    fn test_get_git_dir_path_standard() {
-        let dir = tempdir().unwrap();
-        init_repo(dir.path());
-        let git_dir_from_func = get_git_dir_path(dir.path()).unwrap();
-        let expected_git_dir = dir.path().join(".git/"); // repo.path() for standard repo includes .git/
-
-        let canon_git_dir = fs::canonicalize(git_dir_from_func).unwrap();
-        let canon_expected_dir = fs::canonicalize(expected_git_dir).unwrap();
-        
-        // Normalize by removing trailing slash if present for comparison
-        let norm_canon_git_dir = PathBuf::from(canon_git_dir.to_string_lossy().trim_end_matches('/'));
-        let norm_canon_expected_dir = PathBuf::from(canon_expected_dir.to_string_lossy().trim_end_matches('/'));
-
-        assert_eq!(norm_canon_git_dir, norm_canon_expected_dir);
-    }
-
-    #[test]
-    fn test_get_git_dir_path_bare() {
-        let dir = tempdir().unwrap();
-        init_bare_repo(dir.path());
-        let git_dir_from_func = get_git_dir_path(dir.path()).unwrap(); // This is repo.path()
-
-        let canon_git_dir = fs::canonicalize(git_dir_from_func).unwrap();
-        let canon_temp_dir = fs::canonicalize(dir.path()).unwrap();
-
-        // Normalize by removing trailing slash if present for comparison
-        let norm_canon_git_dir = PathBuf::from(canon_git_dir.to_string_lossy().trim_end_matches('/'));
-        let norm_canon_temp_dir = PathBuf::from(canon_temp_dir.to_string_lossy().trim_end_matches('/'));
-
-        assert_eq!(norm_canon_git_dir, norm_canon_temp_dir);
-    }
-
-
-    #[test]
-    fn test_is_bare_repository_standard() {
-        let dir = tempdir().unwrap();
-        init_repo(dir.path());
-        assert!(!is_bare_repository(dir.path()).unwrap());
-    }
-
-    #[test]
-    fn test_is_bare_repository_bare() {
-        let dir = tempdir().unwrap();
-        init_bare_repo(dir.path());
-        assert!(is_bare_repository(dir.path()).unwrap());
-    }
-
-    #[test]
-    fn test_is_worktree_git_dir_true() {
-        let dir = tempdir().unwrap();
-        let git_file_path = dir.path().join(".git");
-        let mut file = File::create(&git_file_path).unwrap();
-        writeln!(file, "gitdir: /path/to/real/git/dir").unwrap();
-        assert!(is_worktree_git_dir(&git_file_path));
-    }
-
-    #[test]
-    fn test_is_worktree_git_dir_false_for_dir() {
-        let dir = tempdir().unwrap();
-        let git_dir_path = dir.path().join(".git");
-        fs::create_dir(&git_dir_path).unwrap();
-        assert!(!is_worktree_git_dir(&git_dir_path));
-    }
-
-    #[test]
-    fn test_is_worktree_git_dir_false_for_unrelated_file() {
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("some_file.txt");
-        File::create(&file_path).unwrap();
-        assert!(!is_worktree_git_dir(&file_path));
-    }
-
-    #[test]
     fn test_list_linked_worktrees_empty() {
         let main_repo_dir = tempdir().unwrap();
         init_repo(main_repo_dir.path());
 
         let worktrees = list_linked_worktrees(main_repo_dir.path()).unwrap();
-        assert!(worktrees.is_empty(), "Should have no linked worktrees initially");
+        assert!(
+            worktrees.is_empty(),
+            "Should have no linked worktrees initially"
+        );
     }
 
     #[test]
@@ -299,7 +190,15 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        let commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
+        let commit_oid = repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                "Initial commit",
+                &tree,
+                &[],
+            )
             .expect("Failed to create initial commit");
         let commit = repo.find_commit(commit_oid).unwrap();
 
@@ -310,26 +209,34 @@ mod tests {
             .expect("Failed to create branch for worktree");
 
         // Use a subdirectory within a tempdir for the worktree path
-        let base_wt_temp_dir = tempdir().unwrap(); 
+        let base_wt_temp_dir = tempdir().unwrap();
         let wt_path = base_wt_temp_dir.path().join("my_worktree_dir"); // Path for the new worktree, does not exist yet
-        let wt_name = "feature-branch"; 
+        let wt_name = "feature-branch";
 
         let mut opts = WorktreeAddOptions::new();
-        let worktree_specific_ref = repo.find_reference(&format!("refs/heads/{}", worktree_branch_name)).unwrap();
-        opts.reference(Some(&worktree_specific_ref)); 
-        
+        let worktree_specific_ref = repo
+            .find_reference(&format!("refs/heads/{}", worktree_branch_name))
+            .unwrap();
+        opts.reference(Some(&worktree_specific_ref));
+
         // git2 will create wt_path
-        let _git2_worktree = repo.worktree(wt_name, &wt_path, Some(&opts)).unwrap(); 
-        
+        let _git2_worktree = repo.worktree(wt_name, &wt_path, Some(&opts)).unwrap();
+
         let worktrees = list_linked_worktrees(main_repo_dir.path()).unwrap();
         assert_eq!(worktrees.len(), 1);
         assert_eq!(worktrees[0].name, wt_name);
-        assert_eq!(fs::canonicalize(&worktrees[0].path).unwrap(), fs::canonicalize(&wt_path).unwrap());
+        assert_eq!(
+            fs::canonicalize(&worktrees[0].path).unwrap(),
+            fs::canonicalize(&wt_path).unwrap()
+        );
 
         let worktrees_from_wt = list_linked_worktrees(&wt_path).unwrap();
         assert_eq!(worktrees_from_wt.len(), 1);
         assert_eq!(worktrees_from_wt[0].name, wt_name);
-        assert_eq!(fs::canonicalize(&worktrees_from_wt[0].path).unwrap(), fs::canonicalize(&wt_path).unwrap());
+        assert_eq!(
+            fs::canonicalize(&worktrees_from_wt[0].path).unwrap(),
+            fs::canonicalize(&wt_path).unwrap()
+        );
     }
 
     #[test]
@@ -352,11 +259,19 @@ mod tests {
     fn test_get_main_repository_path_for_linked_worktree() {
         let main_repo_dir = tempdir().unwrap();
         let repo = init_repo(main_repo_dir.path());
-        
+
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = repo.index().unwrap().write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        let commit_oid = repo.commit(Some("HEAD"), &signature, &signature, "Initial commit", &tree, &[])
+        let commit_oid = repo
+            .commit(
+                Some("HEAD"),
+                &signature,
+                &signature,
+                "Initial commit",
+                &tree,
+                &[],
+            )
             .expect("Failed to create initial commit");
         let commit = repo.find_commit(commit_oid).unwrap();
 
@@ -367,15 +282,20 @@ mod tests {
         let base_wt_temp_dir = tempdir().unwrap();
         let wt_path = base_wt_temp_dir.path().join("another_worktree_dir"); // Path for the new worktree
         let wt_name = "linked-feature";
-        
+
         let mut opts = WorktreeAddOptions::new();
-        let worktree_specific_ref = repo.find_reference(&format!("refs/heads/{}", worktree_branch_name)).unwrap();
+        let worktree_specific_ref = repo
+            .find_reference(&format!("refs/heads/{}", worktree_branch_name))
+            .unwrap();
         opts.reference(Some(&worktree_specific_ref));
         // git2 will create wt_path
         repo.worktree(wt_name, &wt_path, Some(&opts)).unwrap();
 
         let main_path_from_worktree = get_main_repository_path(&wt_path).unwrap();
-        assert_eq!(main_path_from_worktree, fs::canonicalize(main_repo_dir.path()).unwrap(), 
-            "Main repo path from worktree should be the original main repo's path");
+        assert_eq!(
+            main_path_from_worktree,
+            fs::canonicalize(main_repo_dir.path()).unwrap(),
+            "Main repo path from worktree should be the original main repo's path"
+        );
     }
 }

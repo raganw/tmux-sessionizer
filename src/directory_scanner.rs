@@ -1,23 +1,24 @@
 use crate::config::Config; // Add this to use the Config struct
 use crate::container_detector;
 use crate::error::Result; // Add this line to import your custom Result type
-use crate::git_repository_handler::{
-    self, is_git_repository, list_linked_worktrees,
-};
+use crate::git_repository_handler::{self, is_git_repository, list_linked_worktrees};
 use crate::path_utils::expand_tilde; // Add this import
 use git2::Repository; // For repo.is_worktree()
 use std::collections::HashSet; // Add this for HashSet
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, span, warn, Level}; // Add tracing imports
+use tracing::{Level, debug, info, span, warn}; // Add tracing imports
 use walkdir::WalkDir; // Add this for directory traversal
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DirectoryType {
     Plain,
     GitRepository,
-    GitWorktree { main_worktree_path: PathBuf }, // Path to the main .git dir or main worktree's root
-    #[allow(dead_code)] // This variant is used conceptually for exclusion, not direct construction of entries.
+    GitWorktree {
+        main_worktree_path: PathBuf,
+    }, // Path to the main .git dir or main worktree's root
+    #[allow(dead_code)]
+    // This variant is used conceptually for exclusion, not direct construction of entries.
     GitWorktreeContainer, // A directory that primarily contains worktrees of a single main repo
 }
 
@@ -54,8 +55,14 @@ impl<'a> DirectoryScanner<'a> {
             return;
         }
 
-        let worktree_basename = resolved_wt_path.file_name().unwrap_or_default().to_string_lossy();
-        let parent_basename = main_repo_resolved_path.file_name().unwrap_or_default().to_string_lossy();
+        let worktree_basename = resolved_wt_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
+        let parent_basename = main_repo_resolved_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy();
         let display_name = format!("[{}] {}", parent_basename, worktree_basename);
 
         debug!(path = %resolved_wt_path.display(), main_repo = %main_repo_resolved_path.display(), name = %display_name, "Adding Git worktree entry");
@@ -78,20 +85,22 @@ impl<'a> DirectoryScanner<'a> {
         is_explicitly_added: bool, // New flag
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
-    ) -> Result<()> { // Changed return type
-        let candidate_span = span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
+    ) -> Result<()> {
+        // Changed return type
+        let candidate_span =
+            span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
         let _enter = candidate_span.enter();
 
         // if !original_path.is_dir() { // Check on original_path before canonicalization for symlinks to files
-            // If original_path is a symlink, is_dir() checks the target.
-            // This check is more about whether the entry from WalkDir itself is a directory.
-            // However, WalkDir should only yield directories if configured, or we filter by entry.file_type().is_dir()
-            // fs::canonicalize below will fail for symlinks to non-existent targets or non-directories.
-            // For now, let's rely on canonicalize error handling and the is_dir check on resolved_path if needed.
-            // The existing check `if !original_path.is_dir()` might be problematic if original_path is a symlink
-            // and follow_links is false for WalkDir (but it's true).
-            // Let's assume WalkDir gives us something that is, or points to, a directory.
-            // Canonicalization will give the real path.
+        // If original_path is a symlink, is_dir() checks the target.
+        // This check is more about whether the entry from WalkDir itself is a directory.
+        // However, WalkDir should only yield directories if configured, or we filter by entry.file_type().is_dir()
+        // fs::canonicalize below will fail for symlinks to non-existent targets or non-directories.
+        // For now, let's rely on canonicalize error handling and the is_dir check on resolved_path if needed.
+        // The existing check `if !original_path.is_dir()` might be problematic if original_path is a symlink
+        // and follow_links is false for WalkDir (but it's true).
+        // Let's assume WalkDir gives us something that is, or points to, a directory.
+        // Canonicalization will give the real path.
         // }
 
         let resolved_path = match fs::canonicalize(&original_path) {
@@ -108,7 +117,7 @@ impl<'a> DirectoryScanner<'a> {
             debug!(original_path = %original_path.display(), resolved_path = %resolved_path.display(), "Skipping as resolved path is not a directory");
             return Ok(()); // Changed to Ok(())
         }
-        
+
         debug!(original = %original_path.display(), resolved = %resolved_path.display(), "Path resolved");
 
         if processed_resolved_paths.contains(&resolved_path) {
@@ -118,23 +127,29 @@ impl<'a> DirectoryScanner<'a> {
 
         for pattern in &self.config.exclude_patterns {
             if pattern.is_match(original_path.to_string_lossy().as_ref()) // Check original path against exclusions
-                || pattern.is_match(resolved_path.to_string_lossy().as_ref()) { // Check resolved path
+                || pattern.is_match(resolved_path.to_string_lossy().as_ref())
+            {
+                // Check resolved path
                 debug!(path = %resolved_path.display(), pattern = %pattern, "Skipping excluded path");
                 return Ok(()); // Changed to Ok(())
             }
         }
-        
-        let basename_of_resolved_path = resolved_path
-            .file_name()
-            .map_or_else(
-                // Fallback to original_path's basename if resolved_path has no filename (e.g. "/")
-                || original_path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-                |os_str| os_str.to_string_lossy().into_owned(),
-            );
 
-        let is_hidden_by_name = basename_of_resolved_path.starts_with('.') &&
-                                basename_of_resolved_path.len() > 1 &&
-                                basename_of_resolved_path != ".git";
+        let basename_of_resolved_path = resolved_path.file_name().map_or_else(
+            // Fallback to original_path's basename if resolved_path has no filename (e.g. "/")
+            || {
+                original_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            },
+            |os_str| os_str.to_string_lossy().into_owned(),
+        );
+
+        let is_hidden_by_name = basename_of_resolved_path.starts_with('.')
+            && basename_of_resolved_path.len() > 1
+            && basename_of_resolved_path != ".git";
 
         if is_hidden_by_name && !is_explicitly_added {
             debug!(name = %basename_of_resolved_path, path = %resolved_path.display(), "Skipping hidden directory (not explicitly added)");
@@ -158,22 +173,37 @@ impl<'a> DirectoryScanner<'a> {
                             }
                             Err(e) => {
                                 warn!(path = %resolved_path.display(), error = %e, "Failed to get main repository path for worktree, treating as plain directory");
-                                self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
+                                self.add_plain_directory_entry(
+                                    original_path,
+                                    resolved_path,
+                                    basename_of_resolved_path,
+                                    entries,
+                                    processed_resolved_paths,
+                                );
                             }
                         }
-                    } else { // Main Git repository (standard or bare)
+                    } else {
+                        // Main Git repository (standard or bare)
                         let mut add_repo_entry_as_git_repository = true;
 
-                        if repo.is_bare() {
-                            if container_detector::is_bare_repo_worktree_exclusive_container(&resolved_path, &repo)? { // Added ?
-                                debug!(path = %resolved_path.display(), "Identified as a bare repo worktree exclusive container. Skipping direct entry for the container itself, but its worktrees will be listed.");
-                                add_repo_entry_as_git_repository = false;
-                                // Do NOT add to processed_resolved_paths here for the container itself.
-                            }
+                        if repo.is_bare()
+                            && container_detector::is_bare_repo_worktree_exclusive_container(
+                                &resolved_path,
+                                &repo,
+                            )?
+                        {
+                            // Added ?
+                            debug!(path = %resolved_path.display(), "Identified as a bare repo worktree exclusive container. Skipping direct entry for the container itself, but its worktrees will be listed.");
+                            add_repo_entry_as_git_repository = false;
+                            // Do NOT add to processed_resolved_paths here for the container itself.
                         }
 
                         if add_repo_entry_as_git_repository {
-                            let repo_type_str = if repo.is_bare() { "bare Git repository" } else { "standard Git repository" };
+                            let repo_type_str = if repo.is_bare() {
+                                "bare Git repository"
+                            } else {
+                                "standard Git repository"
+                            };
                             debug!(path = %resolved_path.display(), name = %basename_of_resolved_path, type = repo_type_str, "Adding Git repository entry");
                             let repo_entry = DirectoryEntry {
                                 path: original_path.clone(),
@@ -191,7 +221,7 @@ impl<'a> DirectoryScanner<'a> {
                         match list_linked_worktrees(&resolved_path) {
                             Ok(linked_worktrees) => {
                                 debug!(repo_path = %resolved_path.display(), count = linked_worktrees.len(), "Found linked worktrees");
-                                
+
                                 // Use the resolved_path of the directory we are currently processing (the container)
                                 // as the reference for the parent part of the worktree display name.
                                 let main_repo_ref_path_for_display = resolved_path.clone();
@@ -204,7 +234,7 @@ impl<'a> DirectoryScanner<'a> {
                                                 warn!(wt_path = %wt_path_from_git.display(), resolved_wt_path = %canonical_wt_path.display(), "Linked worktree path is not a directory, skipping");
                                                 continue;
                                             }
-                                             self.add_worktree_entry(
+                                            self.add_worktree_entry(
                                                 wt_path_from_git.clone(),
                                                 canonical_wt_path,
                                                 &main_repo_ref_path_for_display, // Use the determined reference path
@@ -228,30 +258,44 @@ impl<'a> DirectoryScanner<'a> {
                 Err(e) => {
                     warn!(path = %resolved_path.display(), error = %e, "Failed to open path as Git repository despite initial check, treating as plain");
                     // Before adding as plain, check if it's a worktree container
-                    if container_detector::check_if_worktree_container(&resolved_path)? { // Added ?
+                    if container_detector::check_if_worktree_container(&resolved_path)? {
+                        // Added ?
                         debug!(path = %resolved_path.display(), "Identified as a Git worktree container (after failing to open as repo), skipping");
                         return Ok(()); // Changed to Ok(())
                     }
-                    self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
+                    self.add_plain_directory_entry(
+                        original_path,
+                        resolved_path,
+                        basename_of_resolved_path,
+                        entries,
+                        processed_resolved_paths,
+                    );
                 }
             }
-        } else { // Not a Git repository (is_git_repository(&resolved_path) returned false)
+        } else {
+            // Not a Git repository (is_git_repository(&resolved_path) returned false)
             // Check if it's a GitWorktreeContainer before treating as plain
-            if container_detector::check_if_worktree_container(&resolved_path)? { // Added ?
+            if container_detector::check_if_worktree_container(&resolved_path)? {
+                // Added ?
                 debug!(path = %resolved_path.display(), "Identified as a Git worktree container, skipping");
                 // Do not add to entries, effectively excluding it.
                 // We also don't add to processed_resolved_paths here, as it's not an "entry".
                 // If this path were encountered again via a different original_path (e.g. another symlink),
                 // it would be re-evaluated, which is fine.
                 return Ok(()); // Changed to Ok(())
-            } else {
-                // If not a container, then it's a plain directory
-                self.add_plain_directory_entry(original_path, resolved_path, basename_of_resolved_path, entries, processed_resolved_paths);
             }
+            // If not a container, then it's a plain directory
+            self.add_plain_directory_entry(
+                original_path,
+                resolved_path,
+                basename_of_resolved_path,
+                entries,
+                processed_resolved_paths,
+            );
         }
         Ok(()) // Added Ok(()) for successful completion
     }
-    
+
     // Helper function to add plain directory entries
     fn add_plain_directory_entry(
         &self,
@@ -281,7 +325,8 @@ impl<'a> DirectoryScanner<'a> {
 
     // scan function remains the same as it calls process_path_candidate
     // ... (scan function definition) ...
-    pub fn scan(&self) -> Result<Vec<DirectoryEntry>> { // Changed return type
+    pub fn scan(&self) -> Result<Vec<DirectoryEntry>> {
+        // Changed return type
         let scan_span = span!(Level::INFO, "directory_scan");
         let _enter = scan_span.enter();
 
@@ -338,7 +383,7 @@ impl<'a> DirectoryScanner<'a> {
         for additional_path_config_entry in &self.config.additional_paths {
             let path_span = span!(Level::DEBUG, "process_additional_path", config_path = %additional_path_config_entry.display());
             let _path_enter = path_span.enter();
-            
+
             let original_path = match expand_tilde(additional_path_config_entry) {
                 Some(p) => p,
                 None => {
@@ -347,7 +392,12 @@ impl<'a> DirectoryScanner<'a> {
                 }
             };
             debug!(expanded_path = %original_path.display(), "Expanded additional path");
-            self.process_path_candidate(original_path, true, &mut entries, &mut processed_resolved_paths)?; // Added ?
+            self.process_path_candidate(
+                original_path,
+                true,
+                &mut entries,
+                &mut processed_resolved_paths,
+            )?; // Added ?
         }
 
         info!(count = entries.len(), "Directory scan complete");
@@ -360,7 +410,7 @@ impl<'a> DirectoryScanner<'a> {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use git2::{Repository, WorktreeAddOptions, Signature}; // Added Signature
+    use git2::{Repository, Signature, WorktreeAddOptions}; // Added Signature
     use regex::Regex;
     use std::fs::{self};
     use tempfile::tempdir;
@@ -383,30 +433,36 @@ mod tests {
     ) -> Repository {
         // Create an initial commit if the repo is empty, which is necessary for worktree creation.
         if bare_repo.is_empty().unwrap_or(true) {
-            let mut index = bare_repo.index().expect("Failed to get index for bare repo");
+            let mut index = bare_repo
+                .index()
+                .expect("Failed to get index for bare repo");
             let tree_id = index.write_tree().expect("Failed to write empty tree");
             let tree = bare_repo.find_tree(tree_id).expect("Failed to find tree");
-            let sig = Signature::now("Test User", "test@example.com").expect("Failed to create signature");
-            bare_repo.commit(
-                Some("HEAD"),      // Update HEAD
-                &sig,              // Author
-                &sig,              // Committer
-                "Initial commit",  // Commit message
-                &tree,             // Tree
-                &[],               // No parent commits
-            ).expect("Failed to create initial commit in bare repo");
+            let sig = Signature::now("Test User", "test@example.com")
+                .expect("Failed to create signature");
+            bare_repo
+                .commit(
+                    Some("HEAD"),     // Update HEAD
+                    &sig,             // Author
+                    &sig,             // Committer
+                    "Initial commit", // Commit message
+                    &tree,            // Tree
+                    &[],              // No parent commits
+                )
+                .expect("Failed to create initial commit in bare repo");
         }
 
         // For a bare repo, worktrees are added relative to its path, but the actual worktree dir can be elsewhere.
         // We need to ensure the worktree_path exists.
-        fs::create_dir_all(worktree_path.parent().unwrap()).expect("Failed to create parent for worktree path");
-        let mut opts = WorktreeAddOptions::new();
+        fs::create_dir_all(worktree_path.parent().unwrap())
+            .expect("Failed to create parent for worktree path");
+        let opts = WorktreeAddOptions::new();
         bare_repo
-            .worktree(worktree_name, worktree_path, Some(&mut opts))
+            .worktree(worktree_name, worktree_path, Some(&opts))
             .expect("Failed to add worktree");
         Repository::open(worktree_path).expect("Failed to open added worktree")
     }
-    
+
     // Helper to create a default config for tests
     fn default_test_config() -> Config {
         Config {
@@ -422,7 +478,7 @@ mod tests {
     #[test]
     fn test_scan_skips_bare_repo_container_lists_its_worktrees() {
         let base_dir = tempdir().unwrap();
-        
+
         // Setup the container structure
         let container_path = base_dir.path().join("my_bare_container");
         fs::create_dir(&container_path).unwrap();
@@ -430,9 +486,14 @@ mod tests {
         let bare_repo_actual_path = container_path.join(bare_repo_dir_name);
         fs::create_dir(&bare_repo_actual_path).unwrap();
         let _ = init_bare_repo(&bare_repo_actual_path); // Initialize the bare repo
-        fs::write(container_path.join(".git"), format!("gitdir: {}", bare_repo_dir_name)).unwrap(); // Link .git file
+        fs::write(
+            container_path.join(".git"),
+            format!("gitdir: {}", bare_repo_dir_name),
+        )
+        .unwrap(); // Link .git file
 
-        let container_repo_obj = Repository::open(&container_path).expect("Failed to open container path as repo for test setup");
+        let container_repo_obj = Repository::open(&container_path)
+            .expect("Failed to open container path as repo for test setup");
 
         let wt1_path = container_path.join("feature_a");
         add_worktree_to_bare(&container_repo_obj, "feature_a", &wt1_path);
@@ -460,30 +521,77 @@ mod tests {
             .to_string_lossy();
 
         // The container itself should NOT be an entry
-        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_path), "Bare repo container itself should be skipped. Entries: {:?}", &entries);
-        
+        assert!(
+            !entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_container_path),
+            "Bare repo container itself should be skipped. Entries: {:?}",
+            &entries
+        );
+
         // Its worktrees SHOULD be entries
-        let wt1_entry = entries.iter().find(|e| e.resolved_path == canonical_wt1_path);
-        assert!(wt1_entry.is_some(), "Worktree 1 should be listed. Entries: {:?}", &entries);
-        assert!(matches!(wt1_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 1 should be of type GitWorktree");
-        assert_eq!(wt1_entry.unwrap().display_name, format!("[{}] feature_a", container_name));
+        let wt1_entry = entries
+            .iter()
+            .find(|e| e.resolved_path == canonical_wt1_path);
+        assert!(
+            wt1_entry.is_some(),
+            "Worktree 1 should be listed. Entries: {:?}",
+            &entries
+        );
+        assert!(
+            matches!(
+                wt1_entry.unwrap().entry_type,
+                DirectoryType::GitWorktree { .. }
+            ),
+            "Worktree 1 should be of type GitWorktree"
+        );
+        assert_eq!(
+            wt1_entry.unwrap().display_name,
+            format!("[{}] feature_a", container_name)
+        );
 
-
-        let wt2_entry = entries.iter().find(|e| e.resolved_path == canonical_wt2_path);
-        assert!(wt2_entry.is_some(), "Worktree 2 should be listed. Entries: {:?}", &entries);
-        assert!(matches!(wt2_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }), "Worktree 2 should be of type GitWorktree");
-        assert_eq!(wt2_entry.unwrap().display_name, format!("[{}] bugfix_b", container_name));
-
+        let wt2_entry = entries
+            .iter()
+            .find(|e| e.resolved_path == canonical_wt2_path);
+        assert!(
+            wt2_entry.is_some(),
+            "Worktree 2 should be listed. Entries: {:?}",
+            &entries
+        );
+        assert!(
+            matches!(
+                wt2_entry.unwrap().entry_type,
+                DirectoryType::GitWorktree { .. }
+            ),
+            "Worktree 2 should be of type GitWorktree"
+        );
+        assert_eq!(
+            wt2_entry.unwrap().display_name,
+            format!("[{}] bugfix_b", container_name)
+        );
 
         // The plain project should be an entry
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_project_path && e.entry_type == DirectoryType::Plain), "Plain project should be listed. Entries: {:?}", &entries);
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_plain_project_path
+                    && e.entry_type == DirectoryType::Plain),
+            "Plain project should be listed. Entries: {:?}",
+            &entries
+        );
 
         // Total entries: wt1, wt2, plain_project = 3
-        assert_eq!(entries.len(), 3, "Expected 3 entries (2 worktrees, 1 plain project). Entries: {:?}", &entries);
+        assert_eq!(
+            entries.len(),
+            3,
+            "Expected 3 entries (2 worktrees, 1 plain project). Entries: {:?}",
+            &entries
+        );
     }
 
     #[test]
-    fn test_scan_excludes_worktree_container() { // This tests the original check_if_worktree_container
+    fn test_scan_excludes_worktree_container() {
+        // This tests the original check_if_worktree_container
         let base_dir = tempdir().unwrap();
         let main_repo_dir = base_dir.path().join("main_bare_repo_for_other_container"); // Different main repo
         fs::create_dir(&main_repo_dir).unwrap();
@@ -492,7 +600,7 @@ mod tests {
         // This container is NOT a repo itself, its children are worktrees of _main_repo
         let non_repo_container_dir_path = base_dir.path().join("non_repo_worktree_holder");
         fs::create_dir(&non_repo_container_dir_path).unwrap();
-        
+
         let wt1_path = non_repo_container_dir_path.join("wt1_in_non_repo_container");
         add_worktree_to_bare(&_main_repo, "wt1_in_non_repo_container", &wt1_path);
         let wt2_path = non_repo_container_dir_path.join("wt2_in_non_repo_container");
@@ -506,23 +614,50 @@ mod tests {
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan().expect("Scan failed in test");
-        
+
         let canonical_main_repo_dir = fs::canonicalize(&main_repo_dir).unwrap();
         // wt1 and wt2 are children of non_repo_container_dir_path, which is skipped.
         // These worktrees are listed because main_repo_dir lists them.
-        let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap(); 
+        let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap();
         let canonical_wt2_path = fs::canonicalize(&wt2_path).unwrap();
         let canonical_plain_dir_path = fs::canonicalize(&plain_dir_path).unwrap();
         let canonical_container_dir_path = fs::canonicalize(&non_repo_container_dir_path).unwrap();
 
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_main_repo_dir));
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt1_path)); 
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_wt2_path)); 
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_dir_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == canonical_container_dir_path), "Non-repo worktree container should be excluded. Entries: {:?}", &entries);
-        
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_main_repo_dir)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_wt1_path)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_wt2_path)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_plain_dir_path)
+        );
+        assert!(
+            !entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_container_dir_path),
+            "Non-repo worktree container should be excluded. Entries: {:?}",
+            &entries
+        );
+
         // main_repo_dir, its 2 worktrees, plain_project = 4 entries
-        assert_eq!(entries.len(), 4, "Expected 4 entries. Entries: {:?}", &entries);
+        assert_eq!(
+            entries.len(),
+            4,
+            "Expected 4 entries. Entries: {:?}",
+            &entries
+        );
     }
 
     #[test]
@@ -533,11 +668,11 @@ mod tests {
         fs::create_dir(&plain_project_path).unwrap();
 
         let git_project_path = base_dir.path().join("my_git_project");
-        init_repo(&git_project_path); 
+        init_repo(&git_project_path);
 
         let main_bare_repo_path = base_dir.path().join("central_bare.git");
         let main_bare_repo = init_bare_repo(&main_bare_repo_path);
-        
+
         let worktree1_path = base_dir.path().join("worktree_one"); // worktree of central_bare.git
         add_worktree_to_bare(&main_bare_repo, "wt_one", &worktree1_path);
 
@@ -547,20 +682,48 @@ mod tests {
         let entries = scanner.scan().expect("Scan failed in test");
 
         // Expected: plain_project, git_project, central_bare.git, worktree_one
-        assert_eq!(entries.len(), 4, "Should find plain, git repo, bare repo, and its worktree. Entries: {:?}", &entries);
+        assert_eq!(
+            entries.len(),
+            4,
+            "Should find plain, git repo, bare repo, and its worktree. Entries: {:?}",
+            &entries
+        );
 
         let canonical_plain_project_path = fs::canonicalize(&plain_project_path).unwrap();
         let canonical_git_project_path = fs::canonicalize(&git_project_path).unwrap();
         let canonical_main_bare_repo_path = fs::canonicalize(&main_bare_repo_path).unwrap();
         let canonical_worktree1_path = fs::canonicalize(&worktree1_path).unwrap();
 
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_plain_project_path && e.entry_type == DirectoryType::Plain));
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_git_project_path && e.entry_type == DirectoryType::GitRepository));
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_main_bare_repo_path && e.entry_type == DirectoryType::GitRepository)); // The bare repo itself is an entry
-        let wt1_entry = entries.iter().find(|e| e.resolved_path == canonical_worktree1_path);
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_plain_project_path
+                    && e.entry_type == DirectoryType::Plain)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_git_project_path
+                    && e.entry_type == DirectoryType::GitRepository)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_main_bare_repo_path
+                    && e.entry_type == DirectoryType::GitRepository)
+        ); // The bare repo itself is an entry
+        let wt1_entry = entries
+            .iter()
+            .find(|e| e.resolved_path == canonical_worktree1_path);
         assert!(wt1_entry.is_some());
-        assert!(matches!(wt1_entry.unwrap().entry_type, DirectoryType::GitWorktree { .. }));
-        assert_eq!(wt1_entry.unwrap().display_name, "[central_bare.git] worktree_one");
+        assert!(matches!(
+            wt1_entry.unwrap().entry_type,
+            DirectoryType::GitWorktree { .. }
+        ));
+        assert_eq!(
+            wt1_entry.unwrap().display_name,
+            "[central_bare.git] worktree_one"
+        );
     }
 
     #[test]
@@ -576,29 +739,37 @@ mod tests {
         let other_loc_dir = tempdir().unwrap();
         let additional_project_path = other_loc_dir.path().join("additional_proj");
         fs::create_dir(&additional_project_path).unwrap();
-        
+
         // Mock `expand_tilde` for this test by using paths that don't need it,
         // or ensure the test environment has a home dir.
         // For simplicity, we'll use absolute paths in config for this test,
         // assuming `expand_tilde` is tested elsewhere or works.
         // Or, we can test `expand_tilde` separately.
         // Here, we'll construct search_paths that mimic post-tilde-expansion.
-        
+
         let mut config = default_test_config();
         // If we could mock dirs::home_dir(), we'd use "~/Development"
         // Instead, use the actual path for testing the rest of scan logic
-        config.search_paths = vec![dev_dir_in_home.clone()]; 
+        config.search_paths = vec![dev_dir_in_home.clone()];
         config.additional_paths = vec![additional_project_path.clone()];
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan().expect("Scan failed in test");
-        
+
         assert_eq!(entries.len(), 2, "Entries: {:?}", &entries);
 
         let canonical_project_in_dev_path = fs::canonicalize(&project_in_dev_path).unwrap();
         let canonical_additional_project_path = fs::canonicalize(&additional_project_path).unwrap();
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_project_in_dev_path));
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_additional_project_path));
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_project_in_dev_path)
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_additional_project_path)
+        );
     }
 
     #[test]
@@ -620,11 +791,19 @@ mod tests {
 
         let canonical_project_a_path = fs::canonicalize(&project_a_path).unwrap();
         let canonical_project_b_path = fs::canonicalize(&project_b_path).unwrap();
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_project_a_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == canonical_project_b_path));
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_project_a_path)
+        );
+        assert!(
+            !entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_project_b_path)
+        );
     }
 
-     #[test]
+    #[test]
     fn test_scan_hidden_directory_exclusion_in_walkdir() {
         let base_dir = tempdir().unwrap();
         let visible_project_path = base_dir.path().join("visible_project");
@@ -637,13 +816,26 @@ mod tests {
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan().expect("Scan failed in test");
-        
-        assert_eq!(entries.len(), 1, "Only visible_project should be found. Entries: {:?}", &entries);
+
+        assert_eq!(
+            entries.len(),
+            1,
+            "Only visible_project should be found. Entries: {:?}",
+            &entries
+        );
 
         let canonical_visible_project_path = fs::canonicalize(&visible_project_path).unwrap();
         let canonical_hidden_project_path = fs::canonicalize(&hidden_project_path).unwrap();
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_visible_project_path));
-        assert!(!entries.iter().any(|e| e.resolved_path == canonical_hidden_project_path));
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_visible_project_path)
+        );
+        assert!(
+            !entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_hidden_project_path)
+        );
     }
 
     #[test]
@@ -658,10 +850,19 @@ mod tests {
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan().expect("Scan failed in test");
-        
-        assert_eq!(entries.len(), 1, "Explicitly added hidden dir should be found. Entries: {:?}", &entries);
+
+        assert_eq!(
+            entries.len(),
+            1,
+            "Explicitly added hidden dir should be found. Entries: {:?}",
+            &entries
+        );
 
         let canonical_hidden_config_path = fs::canonicalize(&hidden_config_path).unwrap();
-        assert!(entries.iter().any(|e| e.resolved_path == canonical_hidden_config_path));
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_hidden_config_path)
+        );
     }
 }

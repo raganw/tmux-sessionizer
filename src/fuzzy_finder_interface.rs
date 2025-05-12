@@ -90,10 +90,9 @@ impl FuzzyFinder {
             return Ok(None);
         }
         if skim_input.is_empty() && entries.is_empty() {
-             // Already handled by the first check, but being explicit.
+            // Already handled by the first check, but being explicit.
             return Ok(None);
         }
-
 
         // Configure Skim options
         let options = SkimOptionsBuilder::default()
@@ -104,7 +103,7 @@ impl FuzzyFinder {
             // .preview(Some("")) // Enable preview window, command can be set
             // .delimiter(Some("\t")) // If Skim needs to parse fields internally
             .build()
-            .map_err(|e| AppError::FinderError(format!("Failed to build Skim options: {}", e)))?;
+            .map_err(|e| AppError::Finder(format!("Failed to build Skim options: {}", e)))?;
 
         // Create an item reader from the prepared input string
         let item_reader = SkimItemReader::default();
@@ -113,7 +112,9 @@ impl FuzzyFinder {
         // Run Skim and process the output
         // Skim::run_with returns Option<SkimOutput>
         let skim_output = Skim::run_with(&options, Some(items)).ok_or_else(|| {
-            AppError::FinderError("Skim execution failed or was cancelled by user initially".to_string())
+            AppError::Finder(
+                "Skim execution failed or was cancelled by user initially".to_string(),
+            )
         })?;
         // If Skim::run_with returns None, it means skim was aborted (e.g. ESC) before selection loop started.
         // If it returns Some(output), then output.is_abort indicates if ESC was pressed during selection.
@@ -134,7 +135,7 @@ impl FuzzyFinder {
 
         // We expect only one selected item due to `multi(false)`
         let selected_skim_item = selected_items.first().ok_or_else(|| {
-            AppError::FinderError(
+            AppError::Finder(
                 "Skim reported selection but no items found in selected_items list".to_string(),
             )
         })?;
@@ -157,7 +158,7 @@ impl FuzzyFinder {
             );
             Ok(Some(SelectedItem { display_name, path }))
         } else {
-            Err(AppError::FinderError(format!(
+            Err(AppError::Finder(format!(
                 "Selected line from Skim has unexpected format (expected 'display\\tpath'): '{}'",
                 selected_line
             )))
@@ -222,15 +223,20 @@ impl FuzzyFinder {
                 }
             }
             Err(e) => {
-                if e.kind() != std::io::ErrorKind::NotFound || search_target_path.components().count() > 1 || search_target_path.is_absolute() {
+                if e.kind() != std::io::ErrorKind::NotFound
+                    || search_target_path.components().count() > 1
+                    || search_target_path.is_absolute()
+                {
                     debug!(
                         "Direct selection: Failed to canonicalize search target '{}': {}. Continuing with other matching strategies.",
-                        search_target_path.display(), e
+                        search_target_path.display(),
+                        e
                     );
                 } else {
-                     debug!(
+                    debug!(
                         "Direct selection: Search target '{}' not found as a direct canonicalizable path (error: {}). Trying other strategies.",
-                        search_target_path.display(), e
+                        search_target_path.display(),
+                        e
                     );
                 }
             }
@@ -238,7 +244,7 @@ impl FuzzyFinder {
 
         // Priority 2: Exact match on `entry.path` (original path before resolution)
         if let Some(entry) = entries.iter().find(|e| e.path == search_target_path) {
-             debug!(
+            debug!(
                 "Direct selection: Matched original path '{}' to entry '{}' ({})",
                 search_target_path.display(),
                 entry.display_name,
@@ -260,40 +266,116 @@ impl FuzzyFinder {
             let entry = suffix_matches[0];
             debug!(
                 "Direct selection: Matched suffix '{}' to entry '{}' ({})",
-                search_target_path.display(), entry.display_name, entry.resolved_path.display()
+                search_target_path.display(),
+                entry.display_name,
+                entry.resolved_path.display()
             );
-            return Ok(Some(SelectedItem { display_name: entry.display_name.clone(), path: entry.resolved_path.clone() }));
+            return Ok(Some(SelectedItem {
+                display_name: entry.display_name.clone(),
+                path: entry.resolved_path.clone(),
+            }));
         } else if suffix_matches.len() > 1 {
-            let matched_paths: Vec<String> = suffix_matches.iter().map(|e| e.resolved_path.display().to_string()).collect();
-            warn!("Direct selection: Search target '{}' is ambiguous by suffix, matched: {:?}", search_target_raw, matched_paths);
-            return Err(AppError::FinderError(format!("Search target '{}' is ambiguous: {} entries end with this path. Matches: {:?}", search_target_raw, suffix_matches.len(), matched_paths)));
+            let matched_paths: Vec<String> = suffix_matches
+                .iter()
+                .map(|e| e.resolved_path.display().to_string())
+                .collect();
+            warn!(
+                "Direct selection: Search target '{}' is ambiguous by suffix, matched: {:?}",
+                search_target_raw, matched_paths
+            );
+            return Err(AppError::Finder(format!(
+                "Search target '{}' is ambiguous: {} entries end with this path. Matches: {:?}",
+                search_target_raw,
+                suffix_matches.len(),
+                matched_paths
+            )));
         }
 
         // Priority 4: Exact match on `entry.display_name`
-        let display_name_matches: Vec<&DirectoryEntry> = entries.iter().filter(|e| e.display_name == search_target_raw).collect();
+        let display_name_matches: Vec<&DirectoryEntry> = entries
+            .iter()
+            .filter(|e| e.display_name == search_target_raw)
+            .collect();
         if display_name_matches.len() == 1 {
             let entry = display_name_matches[0];
-            debug!("Direct selection: Matched display name '{}' to entry '{}' ({})", search_target_raw, entry.display_name, entry.resolved_path.display());
-            return Ok(Some(SelectedItem { display_name: entry.display_name.clone(), path: entry.resolved_path.clone() }));
+            debug!(
+                "Direct selection: Matched display name '{}' to entry '{}' ({})",
+                search_target_raw,
+                entry.display_name,
+                entry.resolved_path.display()
+            );
+            return Ok(Some(SelectedItem {
+                display_name: entry.display_name.clone(),
+                path: entry.resolved_path.clone(),
+            }));
         } else if display_name_matches.len() > 1 {
-            let matched_displays: Vec<String> = display_name_matches.iter().map(|e| format!("{} ({})", e.display_name, e.resolved_path.display())).collect();
-            warn!("Direct selection: Search target '{}' is ambiguous by display name, matched: {:?}", search_target_raw, matched_displays);
-            return Err(AppError::FinderError(format!("Search target '{}' is ambiguous: {} entries have this display name. Matches: {:?}", search_target_raw, display_name_matches.len(), matched_displays)));
+            let matched_displays: Vec<String> = display_name_matches
+                .iter()
+                .map(|e| format!("{} ({})", e.display_name, e.resolved_path.display()))
+                .collect();
+            warn!(
+                "Direct selection: Search target '{}' is ambiguous by display name, matched: {:?}",
+                search_target_raw, matched_displays
+            );
+            return Err(AppError::Finder(format!(
+                "Search target '{}' is ambiguous: {} entries have this display name. Matches: {:?}",
+                search_target_raw,
+                display_name_matches.len(),
+                matched_displays
+            )));
         }
 
         // Priority 5: Filename match on `entry.resolved_path.file_name()`
-        let filename_matches: Vec<&DirectoryEntry> = entries.iter().filter(|e| e.resolved_path.file_name().map_or(false, |name| name == search_target_raw)).collect();
+        let filename_matches: Vec<&DirectoryEntry> = entries
+            .iter()
+            .filter(|e| {
+                e.resolved_path
+                    .file_name()
+                    .map_or(false, |name| name == search_target_raw)
+            })
+            .collect();
         if filename_matches.len() == 1 {
             let entry = filename_matches[0];
-            debug!("Direct selection: Matched filename '{}' to entry '{}' ({})", search_target_raw, entry.display_name, entry.resolved_path.display());
-            return Ok(Some(SelectedItem { display_name: entry.display_name.clone(), path: entry.resolved_path.clone() }));
+            debug!(
+                "Direct selection: Matched filename '{}' to entry '{}' ({})",
+                search_target_raw,
+                entry.display_name,
+                entry.resolved_path.display()
+            );
+            return Ok(Some(SelectedItem {
+                display_name: entry.display_name.clone(),
+                path: entry.resolved_path.clone(),
+            }));
         } else if filename_matches.len() > 1 {
-            let matched_filenames: Vec<String> = filename_matches.iter().map(|e| format!("{} ({})", e.resolved_path.file_name().unwrap_or_default().to_string_lossy(), e.resolved_path.display())).collect();
-            warn!("Direct selection: Search target '{}' is ambiguous by filename, matched: {:?}", search_target_raw, matched_filenames);
-            return Err(AppError::FinderError(format!("Search target '{}' is ambiguous: {} entries have this filename. Matches: {:?}", search_target_raw, filename_matches.len(), matched_filenames)));
+            let matched_filenames: Vec<String> = filename_matches
+                .iter()
+                .map(|e| {
+                    format!(
+                        "{} ({})",
+                        e.resolved_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy(),
+                        e.resolved_path.display()
+                    )
+                })
+                .collect();
+            warn!(
+                "Direct selection: Search target '{}' is ambiguous by filename, matched: {:?}",
+                search_target_raw, matched_filenames
+            );
+            return Err(AppError::Finder(format!(
+                "Search target '{}' is ambiguous: {} entries have this filename. Matches: {:?}",
+                search_target_raw,
+                filename_matches.len(),
+                matched_filenames
+            )));
         }
 
-        debug!("Direct selection: No unique match found for '{}'", search_target_raw);
+        debug!(
+            "Direct selection: No unique match found for '{}'",
+            search_target_raw
+        );
         Ok(None)
     }
 }
@@ -414,9 +496,11 @@ mod tests {
     #[test]
     fn test_direct_select_no_match() {
         let finder = FuzzyFinder::new();
-        let entries = vec![
-            new_test_entry("/path/to/project_a", "/resolved/project_a", "project_a"),
-        ];
+        let entries = vec![new_test_entry(
+            "/path/to/project_a",
+            "/resolved/project_a",
+            "project_a",
+        )];
         let result = finder.direct_select(&entries, "nonexistent_project");
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
@@ -430,15 +514,13 @@ mod tests {
         fs::create_dir(&project_path).unwrap();
         let canonical_project_path = fs::canonicalize(&project_path).unwrap();
 
-        let entries = vec![
-            DirectoryEntry {
-                path: project_path.clone(),
-                resolved_path: canonical_project_path.clone(),
-                display_name: "my_project_display".to_string(),
-                entry_type: DirectoryType::Plain,
-                parent_path: None,
-            },
-        ];
+        let entries = vec![DirectoryEntry {
+            path: project_path.clone(),
+            resolved_path: canonical_project_path.clone(),
+            display_name: "my_project_display".to_string(),
+            entry_type: DirectoryType::Plain,
+            parent_path: None,
+        }];
         let result = finder.direct_select(&entries, project_path.to_str().unwrap());
         assert!(result.is_ok());
         let selection = result.unwrap().expect("Should have found a selection");
@@ -457,33 +539,41 @@ mod tests {
 
         let temp_link_dir = tempdir().unwrap();
         let symlink_path = temp_link_dir.path().join("project_link");
-        #[cfg(unix)] std::os::unix::fs::symlink(&project_target_path, &symlink_path).unwrap();
-        #[cfg(windows)] std::os::windows::fs::symlink_dir(&project_target_path, &symlink_path).unwrap();
-        
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&project_target_path, &symlink_path).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&project_target_path, &symlink_path).unwrap();
+
         // Skip test if symlink creation failed (e.g. permissions on Windows, or not supported)
         if !symlink_path.exists() && !symlink_path.is_symlink() {
-            tracing::warn!("Symlink creation failed or not supported, skipping test_direct_select_original_path_match");
+            tracing::warn!(
+                "Symlink creation failed or not supported, skipping test_direct_select_original_path_match"
+            );
             return;
         }
 
-        let entries = vec![
-            DirectoryEntry {
-                path: symlink_path.clone(),
-                resolved_path: canonical_project_target_path.clone(),
-                display_name: "linked_project".to_string(),
-                entry_type: DirectoryType::Plain,
-                parent_path: None,
-            },
-        ];
+        let entries = vec![DirectoryEntry {
+            path: symlink_path.clone(),
+            resolved_path: canonical_project_target_path.clone(),
+            display_name: "linked_project".to_string(),
+            entry_type: DirectoryType::Plain,
+            parent_path: None,
+        }];
         let result = finder.direct_select(&entries, symlink_path.to_str().unwrap());
         assert!(result.is_ok(), "Result was: {:?}", result.err());
-        let selection = result.unwrap().expect("Should have found a selection by original path");
+        let selection = result
+            .unwrap()
+            .expect("Should have found a selection by original path");
         assert_eq!(selection.display_name, "linked_project");
         assert_eq!(selection.path, canonical_project_target_path);
-        
+
         // fs::remove_file on symlink, or remove_dir if it's a directory symlink
-        #[cfg(unix)] fs::remove_file(&symlink_path).unwrap_or_else(|e| tracing::warn!("Failed to remove symlink file: {}",e));
-        #[cfg(windows)] fs::remove_dir(&symlink_path).unwrap_or_else(|e| tracing::warn!("Failed to remove symlink dir: {}",e));
+        #[cfg(unix)]
+        fs::remove_file(&symlink_path)
+            .unwrap_or_else(|e| tracing::warn!("Failed to remove symlink file: {}", e));
+        #[cfg(windows)]
+        fs::remove_dir(&symlink_path)
+            .unwrap_or_else(|e| tracing::warn!("Failed to remove symlink dir: {}", e));
         fs::remove_dir(&project_target_path).unwrap();
     }
 
@@ -491,8 +581,16 @@ mod tests {
     fn test_direct_select_suffix_match_unique() {
         let finder = FuzzyFinder::new();
         let entries = vec![
-            new_test_entry("/p/to/project_a", "/resolved/path/to/project_a", "project_a"),
-            new_test_entry("/a/p/project_b", "/resolved/another/path/project_b", "project_b"),
+            new_test_entry(
+                "/p/to/project_a",
+                "/resolved/path/to/project_a",
+                "project_a",
+            ),
+            new_test_entry(
+                "/a/p/project_b",
+                "/resolved/another/path/project_b",
+                "project_b",
+            ),
         ];
         let result = finder.direct_select(&entries, "to/project_a");
         assert!(result.is_ok());
@@ -508,15 +606,26 @@ mod tests {
         ];
         let result = finder.direct_select(&entries, "unique_name_1");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap().unwrap().path, PathBuf::from("/resolved/proj1"));
+        assert_eq!(
+            result.unwrap().unwrap().path,
+            PathBuf::from("/resolved/proj1")
+        );
     }
 
     #[test]
     fn test_direct_select_filename_match_ambiguous() {
         let finder = FuzzyFinder::new();
         let entries = vec![
-            new_test_entry("/some/common_name", "/resolved/some/path/common_name", "display1"),
-            new_test_entry("/another/common_name", "/resolved/another/path/common_name", "display2"),
+            new_test_entry(
+                "/some/common_name",
+                "/resolved/some/path/common_name",
+                "display1",
+            ),
+            new_test_entry(
+                "/another/common_name",
+                "/resolved/another/path/common_name",
+                "display2",
+            ),
         ];
         let result = finder.direct_select(&entries, "common_name");
         assert!(result.is_err());

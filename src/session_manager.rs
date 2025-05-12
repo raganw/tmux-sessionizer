@@ -3,7 +3,10 @@ use crate::error::{AppError, Result}; // Add AppError here
 use std::env; // For checking TMUX env var
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use tmux_interface::{AttachSession, Error as TmuxInterfaceError, HasSession, ListSessions, NewSession, SwitchClient, Tmux}; // Aliased Error
+use tmux_interface::{
+    AttachSession, Error as TmuxInterfaceError, HasSession, ListSessions, NewSession, SwitchClient,
+    Tmux,
+}; // Aliased Error
 use tracing::{debug, error};
 
 pub struct SessionManager {}
@@ -41,7 +44,11 @@ impl SessionManager {
     /// # Returns
     ///
     /// A `String` suitable for use as a tmux session name.
-    pub fn generate_session_name(&self, item_path: &Path, parent_repo_path: Option<&Path>) -> String {
+    pub fn generate_session_name(
+        &self,
+        item_path: &Path,
+        parent_repo_path: Option<&Path>,
+    ) -> String {
         let item_basename_osstr = item_path.file_name().unwrap_or_else(|| OsStr::new(""));
         let mut item_basename = item_basename_osstr.to_string_lossy().into_owned();
         if item_basename.is_empty() || item_basename == "/" {
@@ -91,7 +98,9 @@ impl SessionManager {
             Err(e) => {
                 // Check if the error is specifically a TmuxInterfaceError::Tmux variant with a relevant message
                 if let TmuxInterfaceError::Tmux(ref message) = e {
-                    if message.contains("no server running") || message.contains("failed to connect to server") {
+                    if message.contains("no server running")
+                        || message.contains("failed to connect to server")
+                    {
                         debug!("Tmux server is not running (detected via error message).");
                         return Ok(false);
                     }
@@ -116,7 +125,10 @@ impl SessionManager {
     /// * `Err(AppError::TmuxError)` if there was an issue communicating with tmux, other than the server not running.
     pub fn session_exists(&self, session_name: &str) -> Result<bool> {
         debug!("Checking if session '{}' exists.", session_name);
-        match Tmux::new().command(HasSession::new().target_session(session_name)).status() {
+        match Tmux::new()
+            .command(HasSession::new().target_session(session_name))
+            .status()
+        {
             Ok(status) => {
                 let exists = status.success();
                 debug!("Session '{}' exists: {}.", session_name, exists);
@@ -125,8 +137,13 @@ impl SessionManager {
             Err(e) => {
                 // Check if the error is specifically a TmuxInterfaceError::Tmux variant with a relevant message
                 if let TmuxInterfaceError::Tmux(ref message) = e {
-                    if message.contains("no server running") || message.contains("failed to connect to server") {
-                        debug!("Tmux server not running, so session '{}' cannot exist (detected via error message).", session_name);
+                    if message.contains("no server running")
+                        || message.contains("failed to connect to server")
+                    {
+                        debug!(
+                            "Tmux server not running, so session '{}' cannot exist (detected via error message).",
+                            session_name
+                        );
                         return Ok(false); // If server isn't running, session can't exist.
                     }
                 }
@@ -176,16 +193,20 @@ impl SessionManager {
             new_session_cmd = new_session_cmd.detached();
         }
 
-        Tmux::new().command(new_session_cmd).output().map(|_| ()).map_err(|e| {
-            let err_msg = format!(
-                "Failed to create new session '{}' for directory '{}': {}",
-                session_name,
-                start_directory.display(),
-                e
-            );
-            error!("{}", err_msg); // Log the detailed error
-            AppError::SessionError(err_msg)
-        })
+        Tmux::new()
+            .command(new_session_cmd)
+            .output()
+            .map(|_| ())
+            .map_err(|e| {
+                let err_msg = format!(
+                    "Failed to create new session '{}' for directory '{}': {}",
+                    session_name,
+                    start_directory.display(),
+                    e
+                );
+                error!("{}", err_msg); // Log the detailed error
+                AppError::Session(err_msg)
+            })
     }
 
     /// Switches the current tmux client to an existing session, or attaches to it.
@@ -196,22 +217,36 @@ impl SessionManager {
     /// terminal to the specified session. This typically requires the tmux server to be running
     /// and the session to exist.
     pub fn switch_or_attach_to_session(&self, session_name: &str) -> Result<()> {
-        debug!("Switching or attaching to session '{}'. Inside tmux: {}", session_name, self.is_inside_tmux_session());
+        debug!(
+            "Switching or attaching to session '{}'. Inside tmux: {}",
+            session_name,
+            self.is_inside_tmux_session()
+        );
 
         if self.is_inside_tmux_session() {
             let switch_client_cmd = SwitchClient::new().target_session(session_name);
-            Tmux::new().command(switch_client_cmd).output().map(|_| ()).map_err(|e| {
-                let err_msg = format!("Failed to switch client to session '{}': {}", session_name, e);
-                error!("{}", err_msg);
-                AppError::SessionError(err_msg)
-            })
+            Tmux::new()
+                .command(switch_client_cmd)
+                .output()
+                .map(|_| ())
+                .map_err(|e| {
+                    let err_msg = format!(
+                        "Failed to switch client to session '{session_name}': {e}",
+                    );
+                    error!("{}", err_msg);
+                    AppError::Session(err_msg)
+                })
         } else {
             let attach_session_cmd = AttachSession::new().target_session(session_name);
-            Tmux::new().command(attach_session_cmd).output().map(|_| ()).map_err(|e| {
-                let err_msg = format!("Failed to attach to session '{}': {}", session_name, e);
-                error!("{}", err_msg);
-                AppError::SessionError(err_msg)
-            })
+            Tmux::new()
+                .command(attach_session_cmd)
+                .output()
+                .map(|_| ())
+                .map_err(|e| {
+                    let err_msg = format!("Failed to attach to session '{session_name}': {e}");
+                    error!("{}", err_msg);
+                    AppError::Session(err_msg)
+                })
         }
     }
 
@@ -228,10 +263,8 @@ impl SessionManager {
     ///
     /// A `Selection` struct populated with details from the `DirectoryEntry`.
     pub fn create_selection_from_directory_entry(&self, dir_entry: &DirectoryEntry) -> Selection {
-        let session_name = self.generate_session_name(
-            &dir_entry.resolved_path,
-            dir_entry.parent_path.as_deref(),
-        );
+        let session_name =
+            self.generate_session_name(&dir_entry.resolved_path, dir_entry.parent_path.as_deref());
         Selection {
             path: dir_entry.resolved_path.clone(),
             display_name: dir_entry.display_name.clone(),
@@ -278,7 +311,7 @@ mod tests {
         let name = manager.generate_session_name(&item_path, Some(&parent_repo_path));
         assert_eq!(name, "parent-repo_my_feature");
     }
-    
+
     #[test]
     fn test_generate_session_name_root_path_item() {
         let manager = SessionManager::new();
@@ -294,29 +327,6 @@ mod tests {
         let parent_repo_path = PathBuf::from("/");
         let name = manager.generate_session_name(&item_path, Some(&parent_repo_path));
         assert_eq!(name, "default_parent_project");
-    }
-
-    #[test]
-    fn test_generate_session_name_empty_item_basename() {
-        // This case should ideally not happen with real directory paths,
-        // but testing the fallback. An empty string as PathBuf filename part is tricky.
-        // Let's simulate by a path that might result in empty after OsStr conversion if not careful.
-        // However, Path::file_name() on "/foo/" gives "foo". On "/" gives None.
-        // The unwrap_or_else(|| OsStr::new("")) handles the None case.
-        // If item_path.file_name() somehow yields Some(""), it should become "default_session".
-        // This test is more conceptual for the internal logic.
-        let _manager = SessionManager::new();
-        // A path like "." might have file_name() as ".".
-        // A path like "" is invalid.
-        // Let's trust the `if item_basename.is_empty()` check.
-        // For this test, we rely on the root path test to cover the empty OsStr part.
-        // Here, we test the explicit `is_empty()` check.
-        // If item_path is "/home/user/.config", item_basename is ".config"
-        // If item_path is "/home/user/..", item_basename is ".."
-        // It's hard to construct a valid Path that gives an empty (but not None) file_name.
-        // The current implementation handles `None` from `file_name()` by converting `OsStr::new("")`
-        // to `""` string, which then triggers `item_basename = "default_session".to_string();`.
-        // So, `test_generate_session_name_root_path_item` covers this.
     }
 
     // Note: Tests for `is_tmux_server_running` and `session_exists` would require a live tmux server

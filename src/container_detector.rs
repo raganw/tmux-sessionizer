@@ -4,7 +4,7 @@ use git2::Repository;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf}; // PathBuf is used
-use tracing::{debug, span, warn, Level};
+use tracing::{Level, debug, span, warn};
 
 /// Checks if the given path, which is known to be a bare Git repository,
 /// also serves as a container for its own worktrees.
@@ -155,7 +155,8 @@ pub fn check_if_worktree_container(path_to_check: &Path) -> Result<bool> {
 
         if child_file_type.is_dir() || child_file_type.is_symlink() {
             let canonical_child_path = fs::canonicalize(&child_path)?;
-            if !canonical_child_path.is_dir() { // Check after canonicalization
+            if !canonical_child_path.is_dir() {
+                // Check after canonicalization
                 debug!(child = %child_path.display(), resolved = %canonical_child_path.display(), "Child resolved to non-directory, parent not a worktree container.");
                 all_children_are_qualifying_worktrees = false;
                 break;
@@ -177,7 +178,7 @@ pub fn check_if_worktree_container(path_to_check: &Path) -> Result<bool> {
                                     break;
                                 }
                             };
-                        
+
                         let current_main_repo_path = fs::canonicalize(&main_repo_path_val)?;
 
                         if first_main_repo_path.is_none() {
@@ -195,13 +196,15 @@ pub fn check_if_worktree_container(path_to_check: &Path) -> Result<bool> {
                         break;
                     }
                 }
-                Err(_) => { // Not a Git repository
+                Err(_) => {
+                    // Not a Git repository
                     debug!(child = %canonical_child_path.display(), "Child is not a Git repository, parent not a worktree container.");
                     all_children_are_qualifying_worktrees = false;
                     break;
                 }
             }
-        } else { // Not a dir, file, or symlink (should be rare)
+        } else {
+            // Not a dir, file, or symlink (should be rare)
             debug!(child = %child_path.display(), "Child is of unknown type, parent not a worktree container.");
             all_children_are_qualifying_worktrees = false;
             break;
@@ -240,20 +243,15 @@ mod tests {
         worktree_path: &Path,
     ) -> Repository {
         if bare_repo.is_empty().unwrap_or(true) {
-            let mut index = bare_repo.index().expect("Failed to get index for bare repo");
+            let mut index = bare_repo
+                .index()
+                .expect("Failed to get index for bare repo");
             let tree_id = index.write_tree().expect("Failed to write empty tree");
             let tree = bare_repo.find_tree(tree_id).expect("Failed to find tree");
             let sig = Signature::now("Test User", "test@example.com")
                 .expect("Failed to create signature");
             bare_repo
-                .commit(
-                    Some("HEAD"),
-                    &sig,
-                    &sig,
-                    "Initial commit",
-                    &tree,
-                    &[],
-                )
+                .commit(Some("HEAD"), &sig, &sig, "Initial commit", &tree, &[])
                 .expect("Failed to create initial commit in bare repo");
         }
         fs::create_dir_all(worktree_path.parent().unwrap())
@@ -279,11 +277,7 @@ mod tests {
             container_path.join(".git"),
             format!(
                 "gitdir: {}",
-                bare_repo_actual_path
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                bare_repo_actual_path.file_name().unwrap().to_str().unwrap()
             ),
         )
         .unwrap();
@@ -316,11 +310,7 @@ mod tests {
             container_path.join(".git"),
             format!(
                 "gitdir: {}",
-                bare_repo_actual_path
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                bare_repo_actual_path.file_name().unwrap().to_str().unwrap()
             ),
         )
         .unwrap();
@@ -351,11 +341,7 @@ mod tests {
             container_path.join(".git"),
             format!(
                 "gitdir: {}",
-                bare_repo_actual_path
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                bare_repo_actual_path.file_name().unwrap().to_str().unwrap()
             ),
         )
         .unwrap();
@@ -386,11 +372,7 @@ mod tests {
             container_path.join(".git"),
             format!(
                 "gitdir: {}",
-                bare_repo_actual_path
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
+                bare_repo_actual_path.file_name().unwrap().to_str().unwrap()
             ),
         )
         .unwrap();

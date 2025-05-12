@@ -11,7 +11,10 @@ struct CliArgs {
     debug: bool,
     // Placeholder for potential future arguments for paths or exclusions
     // For example:
-    #[arg(index = 1, help = "Direct path or name to select. If provided, fuzzy finder is skipped.")]
+    #[arg(
+        index = 1,
+        help = "Direct path or name to select. If provided, fuzzy finder is skipped."
+    )]
     direct_selection: Option<String>,
     // #[arg(long, value_delimiter = ',', help = "Additional search paths, comma-separated")]
     // additional_paths: Option<Vec<PathBuf>>,
@@ -61,7 +64,7 @@ impl Config {
         if cli_args.debug {
             default_config.debug_mode = true;
         }
-        
+
         // Set direct_selection from CLI args
         default_config.direct_selection = cli_args.direct_selection;
 

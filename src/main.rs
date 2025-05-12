@@ -25,7 +25,8 @@ fn setup_tracing(debug_mode: bool) {
 }
 
 // Modify the main function as follows:
-fn main() -> Result<()> { // Changed to return crate::error::Result for error propagation
+fn main() -> Result<()> {
+    // Changed to return crate::error::Result for error propagation
     // 1. Parse command-line arguments and create a Config instance
     let config = Config::new();
 
@@ -46,7 +47,10 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
     let scanner = DirectoryScanner::new(&config);
     tracing::info!("Starting directory scan via main...");
     let scanned_entries = scanner.scan()?; // Added ?
-    tracing::info!("Directory scan complete. Found {} entries.", scanned_entries.len());
+    tracing::info!(
+        "Directory scan complete. Found {} entries.",
+        scanned_entries.len()
+    );
 
     // 3. Initialize FuzzyFinder
     let fuzzy_finder = FuzzyFinder::new();
@@ -74,12 +78,14 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
         tracing::info!("  Path: {}", selected_item.path.display());
 
         let original_dir_entry_opt = scanned_entries.iter().find(|entry| {
-            entry.resolved_path == selected_item.path && entry.display_name == selected_item.display_name
+            entry.resolved_path == selected_item.path
+                && entry.display_name == selected_item.display_name
         });
 
         if let Some(original_dir_entry) = original_dir_entry_opt {
             let session_manager = session_manager::SessionManager::new();
-            let sm_selection = session_manager.create_selection_from_directory_entry(original_dir_entry);
+            let sm_selection =
+                session_manager.create_selection_from_directory_entry(original_dir_entry);
 
             tracing::info!("  Session Name: {}", sm_selection.session_name);
 
@@ -89,16 +95,21 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
                     match session_manager.session_exists(&sm_selection.session_name) {
                         Ok(true) => {
                             tracing::info!(session_name = %sm_selection.session_name, "Session exists. Switching/Attaching.");
-                            session_manager.switch_or_attach_to_session(&sm_selection.session_name)?;
+                            session_manager
+                                .switch_or_attach_to_session(&sm_selection.session_name)?;
                             tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to session.");
                         }
                         Ok(false) => {
                             tracing::info!(session_name = %sm_selection.session_name, "Session does not exist. Creating new session.");
-                            session_manager.create_new_session(&sm_selection.session_name, &sm_selection.path)?;
+                            session_manager.create_new_session(
+                                &sm_selection.session_name,
+                                &sm_selection.path,
+                            )?;
                             tracing::info!(session_name = %sm_selection.session_name, "Successfully created session.");
-                            
+
                             tracing::info!(session_name = %sm_selection.session_name, "Attempting to switch/attach to newly created session.");
-                            session_manager.switch_or_attach_to_session(&sm_selection.session_name)?;
+                            session_manager
+                                .switch_or_attach_to_session(&sm_selection.session_name)?;
                             tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to new session.");
                         }
                         Err(e) => {
@@ -117,10 +128,13 @@ fn main() -> Result<()> { // Changed to return crate::error::Result for error pr
                 }
             }
         } else {
-            tracing::error!("Could not find the original directory entry for the selection. This is unexpected.");
+            tracing::error!(
+                "Could not find the original directory entry for the selection. This is unexpected."
+            );
             tracing::error!(display_name = %selected_item.display_name, path = %selected_item.path.display(), "Selected item details for missing original entry");
         }
-    } else { // Corresponds to Ok(None) from selection_result
+    } else {
+        // Corresponds to Ok(None) from selection_result
         tracing::info!("No selection made or selection cancelled.");
         if config.direct_selection.is_some() {
             tracing::warn!(target = %config.direct_selection.as_ref().unwrap(), "Direct selection target not found or was ambiguous.");

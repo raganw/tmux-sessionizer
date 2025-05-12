@@ -4,25 +4,25 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum AppError {
     #[error("Configuration error: {0}")]
-    ConfigError(String),
+    _Config(String), // TODO: Remove underscore prefix if used
 
     #[error("Directory scanning error: {0}")]
-    ScannerError(String),
+    _Scanner(String), // TODO: Remove underscore prefix if used
 
     #[error("Git operation error: {0}")]
-    GitError(#[from] git2::Error),
+    Git(#[from] git2::Error),
 
     #[error("Fuzzy finder error: {0}")]
-    FinderError(String),
+    Finder(String),
 
     #[error("Session management error: {0}")]
-    SessionError(String),
+    Session(String),
 
     #[error("Tmux command error: {0}")]
-    TmuxError(#[from] tmux_interface::Error),
+    Tmux(#[from] tmux_interface::Error),
 
     #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 }
 
 /// A type alias for `Result<T, AppError>` for use throughout the application.

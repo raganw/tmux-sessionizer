@@ -8,9 +8,15 @@ pub fn expand_tilde(path: &Path) -> Option<PathBuf> {
         if let Some(home_dir) = dirs::home_dir() {
             trace!(home_dir = %home_dir.display(), "Found home directory for tilde expansion");
             let mut new_path = home_dir;
-            if path.components().count() > 1 { // Check if there's anything after ~
-                 // Strip "~/" prefix and join the rest
-                new_path.push(path.strip_prefix("~").unwrap().strip_prefix("/").unwrap_or_else(|_| path.strip_prefix("~").unwrap()));
+            if path.components().count() > 1 {
+                // Check if there's anything after ~
+                // Strip "~/" prefix and join the rest
+                new_path.push(
+                    path.strip_prefix("~")
+                        .unwrap()
+                        .strip_prefix("/")
+                        .unwrap_or_else(|_| path.strip_prefix("~").unwrap()),
+                );
             }
             trace!(expanded_path = %new_path.display(), "Path expanded after tilde processing");
             Some(new_path)
@@ -57,7 +63,7 @@ mod tests {
             assert_eq!(expand_tilde(&PathBuf::from("~/some_project")), None);
         }
     }
-    
+
     #[test]
     fn test_expand_tilde_with_trailing_slash() {
         if let Some(mut home) = dirs::home_dir() {
@@ -75,14 +81,17 @@ mod tests {
         let original_home = env::var_os("HOME");
         // SAFETY: Modifying environment variables is unsafe. This is a test
         // specifically designed to alter the HOME variable temporarily.
-        unsafe { env::remove_var("HOME"); }
+        unsafe {
+            env::remove_var("HOME");
+        }
 
         // On some systems, dirs::home_dir() might still find a home (e.g., from /etc/passwd).
         // This test is more of a best-effort for typical Unix-like systems where HOME matters most.
         // If dirs::home_dir() still returns Some(), this test might not behave as expected for "no home"
         // but will test expand_tilde's behavior given what dirs::home_dir() provides.
 
-        if dirs::home_dir().is_none() { // Only assert if we truly simulated no home dir
+        if dirs::home_dir().is_none() {
+            // Only assert if we truly simulated no home dir
             assert_eq!(expand_tilde(&PathBuf::from("~/Documents")), None);
         }
 
@@ -90,7 +99,9 @@ mod tests {
         if let Some(home_val) = original_home {
             // SAFETY: Restoring the HOME environment variable. This is part of
             // the test's controlled environment manipulation.
-            unsafe { env::set_var("HOME", home_val); }
+            unsafe {
+                env::set_var("HOME", home_val);
+            }
         }
     }
 }
