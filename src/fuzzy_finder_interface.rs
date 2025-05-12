@@ -21,11 +21,6 @@ pub struct SelectedItem {
 pub struct FuzzyFinder {}
 
 impl FuzzyFinder {
-    /// Creates a new instance of `FuzzyFinder`.
-    pub fn new() -> Self {
-        Self {}
-    }
-
     /// Formats a single directory entry for display in the Skim fuzzy finder.
     ///
     /// The format is `display_name\tresolved_path`, which is consistent with
@@ -181,8 +176,7 @@ impl FuzzyFinder {
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(SelectedItem))` if a unique match is
-    ///     found.
+    /// * `Ok(Some(SelectedItem))` if a unique match is found.
     /// * `Ok(None)` if no match is found.
     /// * `Err(AppError)` if an error occurs (e.g., ambiguity, I/O error during canonicalization).
     #[allow(clippy::too_many_lines)]
@@ -446,14 +440,12 @@ mod tests {
 
     #[test]
     fn test_prepare_skim_input_empty() {
-        let fuzzy_finder = FuzzyFinder::new();
         let entries = Vec::new();
-        assert_eq!(fuzzy_finder.prepare_skim_input(&entries), "");
+        assert_eq!(FuzzyFinder::prepare_skim_input(&entries), "");
     }
 
     #[test]
     fn test_prepare_skim_input_multiple_entries() {
-        let fuzzy_finder = FuzzyFinder::new();
         let entries = vec![
             DirectoryEntry {
                 path: PathBuf::from("/orig/p1"),
@@ -471,14 +463,13 @@ mod tests {
             },
         ];
         let expected_output = "p1\t/res/p1\np2_display\t/res/p2";
-        assert_eq!(fuzzy_finder.prepare_skim_input(&entries), expected_output);
+        assert_eq!(FuzzyFinder::prepare_skim_input(&entries), expected_output);
     }
 
     #[test]
     fn test_select_with_empty_entries_returns_ok_none() {
-        let finder = FuzzyFinder::new();
         let entries = Vec::new();
-        let result = finder.select(&entries);
+        let result = FuzzyFinder::select(&entries);
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
@@ -496,29 +487,26 @@ mod tests {
 
     #[test]
     fn test_direct_select_empty_entries() {
-        let finder = FuzzyFinder::new();
         let entries = Vec::new();
-        let result = finder.direct_select(&entries, "anything");
+        let result = FuzzyFinder::direct_select(&entries, "anything");
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
 
     #[test]
     fn test_direct_select_no_match() {
-        let finder = FuzzyFinder::new();
         let entries = vec![new_test_entry(
             "/path/to/project_a",
             "/resolved/project_a",
             "project_a",
         )];
-        let result = finder.direct_select(&entries, "nonexistent_project");
+        let result = FuzzyFinder::direct_select(&entries, "nonexistent_project");
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
     }
 
     #[test]
     fn test_direct_select_canonical_path_match() {
-        let finder = FuzzyFinder::new();
         let temp_dir = tempdir().unwrap();
         let project_path = temp_dir.path().join("my_project");
         fs::create_dir(&project_path).unwrap();
@@ -531,7 +519,7 @@ mod tests {
             entry_type: DirectoryType::Plain,
             parent_path: None,
         }];
-        let result = finder.direct_select(&entries, project_path.to_str().unwrap());
+        let result = FuzzyFinder::direct_select(&entries, project_path.to_str().unwrap());
         assert!(result.is_ok());
         let selection = result.unwrap().expect("Should have found a selection");
         assert_eq!(selection.display_name, "my_project_display");
@@ -541,7 +529,6 @@ mod tests {
 
     #[test]
     fn test_direct_select_original_path_match() {
-        let finder = FuzzyFinder::new();
         let temp_target_dir = tempdir().unwrap();
         let project_target_path = temp_target_dir.path().join("actual_project");
         fs::create_dir(&project_target_path).unwrap();
@@ -569,7 +556,7 @@ mod tests {
             entry_type: DirectoryType::Plain,
             parent_path: None,
         }];
-        let result = finder.direct_select(&entries, symlink_path.to_str().unwrap());
+        let result = FuzzyFinder::direct_select(&entries, symlink_path.to_str().unwrap());
         assert!(result.is_ok(), "Result was: {:?}", result.err());
         let selection = result
             .unwrap()
@@ -589,7 +576,6 @@ mod tests {
 
     #[test]
     fn test_direct_select_suffix_match_unique() {
-        let finder = FuzzyFinder::new();
         let entries = vec![
             new_test_entry(
                 "/p/to/project_a",
@@ -602,19 +588,18 @@ mod tests {
                 "project_b",
             ),
         ];
-        let result = finder.direct_select(&entries, "to/project_a");
+        let result = FuzzyFinder::direct_select(&entries, "to/project_a");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().unwrap().display_name, "project_a");
     }
 
     #[test]
     fn test_direct_select_display_name_match_unique() {
-        let finder = FuzzyFinder::new();
         let entries = vec![
             new_test_entry("/p/proj1", "/resolved/proj1", "unique_name_1"),
             new_test_entry("/p/proj2", "/resolved/proj2", "unique_name_2"),
         ];
-        let result = finder.direct_select(&entries, "unique_name_1");
+        let result = FuzzyFinder::direct_select(&entries, "unique_name_1");
         assert!(result.is_ok());
         assert_eq!(
             result.unwrap().unwrap().path,
@@ -624,7 +609,6 @@ mod tests {
 
     #[test]
     fn test_direct_select_filename_match_ambiguous() {
-        let finder = FuzzyFinder::new();
         let entries = vec![
             new_test_entry(
                 "/some/common_name",
@@ -637,7 +621,7 @@ mod tests {
                 "display2",
             ),
         ];
-        let result = finder.direct_select(&entries, "common_name");
+        let result = FuzzyFinder::direct_select(&entries, "common_name");
         assert!(result.is_err());
     }
 }

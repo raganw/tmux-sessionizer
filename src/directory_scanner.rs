@@ -78,6 +78,7 @@ impl<'a> DirectoryScanner<'a> {
         processed_resolved_paths.insert(resolved_wt_path);
     }
 
+    #[allow(clippy::too_many_lines)]
     fn process_path_candidate(
         &self,
         original_path: PathBuf, // Path as found by WalkDir or from additional_paths
@@ -85,8 +86,6 @@ impl<'a> DirectoryScanner<'a> {
         entries: &mut Vec<DirectoryEntry>,
         processed_resolved_paths: &mut HashSet<PathBuf>,
     ) -> Result<()> {
-        // Changed return type
-        #[allow(clippy::too_many_lines)]
         let candidate_span =
             span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
         let _enter = candidate_span.enter();

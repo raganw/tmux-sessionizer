@@ -23,11 +23,6 @@ pub struct Selection {
 }
 
 impl SessionManager {
-    /// Creates a new `SessionManager`.
-    pub fn new() -> Self {
-        Self {}
-    }
-
     /// Generates a sanitized tmux session name.
     ///
     /// For standard paths, the session name is derived from the directory's base name.
@@ -279,43 +274,38 @@ mod tests {
 
     #[test]
     fn test_generate_session_name_simple() {
-        let manager = SessionManager::new();
         let path = PathBuf::from("/path/to/my.project");
-        let name = manager.generate_session_name(&path, None);
+        let name = SessionManager::generate_session_name(&path, None);
         assert_eq!(name, "my-project");
     }
 
     #[test]
     fn test_generate_session_name_with_colon() {
-        let manager = SessionManager::new();
         let path = PathBuf::from("/path/to/project:name");
-        let name = manager.generate_session_name(&path, None);
+        let name = SessionManager::generate_session_name(&path, None);
         assert_eq!(name, "project-name");
     }
 
     #[test]
     fn test_generate_session_name_worktree() {
-        let manager = SessionManager::new();
         let item_path = PathBuf::from("/path/to/main_repo/worktrees/feature.branch");
         let parent_repo_path = PathBuf::from("/path/to/main_repo");
-        let name = manager.generate_session_name(&item_path, Some(&parent_repo_path));
+        let name = SessionManager::generate_session_name(&item_path, Some(&parent_repo_path));
         assert_eq!(name, "main_repo_feature-branch");
     }
 
     #[test]
     fn test_generate_session_name_worktree_with_dots_in_parent() {
-        let manager = SessionManager::new();
         let item_path = PathBuf::from("/path/to/parent.repo/worktrees/my_feature");
         let parent_repo_path = PathBuf::from("/path/to/parent.repo");
-        let name = manager.generate_session_name(&item_path, Some(&parent_repo_path));
+        let name = SessionManager::generate_session_name(&item_path, Some(&parent_repo_path));
         assert_eq!(name, "parent-repo_my_feature");
     }
 
     #[test]
     fn test_generate_session_name_root_path_item() {
-        let manager = SessionManager::new();
         let item_path = PathBuf::from("/");
-        let name = manager.generate_session_name(&item_path, None);
+        let name = SessionManager::generate_session_name(&item_path, None);
         assert_eq!(name, "default_session");
     }
 
@@ -324,7 +314,7 @@ mod tests {
         let manager = SessionManager::new();
         let item_path = PathBuf::from("/some/project");
         let parent_repo_path = PathBuf::from("/");
-        let name = manager.generate_session_name(&item_path, Some(&parent_repo_path));
+        let name = SessionManager::generate_session_name(&item_path, Some(&parent_repo_path));
         assert_eq!(name, "default_parent_project");
     }
 

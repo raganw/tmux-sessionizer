@@ -53,7 +53,6 @@ fn main() -> Result<()> {
     );
 
     // 3. Initialize FuzzyFinder
-    let fuzzy_finder = FuzzyFinder::new();
     let selection_result: Result<Option<SelectedItem>>;
 
     // 4. Perform selection (direct or fuzzy)
@@ -83,17 +82,19 @@ fn main() -> Result<()> {
         });
 
         if let Some(original_dir_entry) = original_dir_entry_opt {
-            let session_manager = session_manager::SessionManager::new();
-            let sm_selection = session_manager::SessionManager::create_selection_from_directory_entry(
-                original_dir_entry,
-            );
+            let sm_selection =
+                session_manager::SessionManager::create_selection_from_directory_entry(
+                    original_dir_entry,
+                );
 
             tracing::info!("  Session Name: {}", sm_selection.session_name);
 
             match session_manager::SessionManager::is_tmux_server_running() {
                 Ok(true) => {
                     tracing::info!("Tmux server is running.");
-                    match session_manager::SessionManager::session_exists(&sm_selection.session_name) {
+                    match session_manager::SessionManager::session_exists(
+                        &sm_selection.session_name,
+                    ) {
                         Ok(true) => {
                             tracing::info!(session_name = %sm_selection.session_name, "Session exists. Switching/Attaching.");
                             session_manager::SessionManager::switch_or_attach_to_session(
