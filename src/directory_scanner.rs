@@ -653,7 +653,7 @@ mod tests {
         let bare_repo_dir_name = "internal_bare.git";
         let bare_repo_actual_path = container_path.join(bare_repo_dir_name);
         fs::create_dir(&bare_repo_actual_path).unwrap();
-        let _ = init_bare_repo(&bare_repo_actual_path); // Initialize the bare repo
+        let _bare_repo = init_bare_repo(&bare_repo_actual_path); // Initialize the bare repo
         // Simulate the .git file pointing to the bare repo dir, making container_path act like a repo
         fs::write(
             container_path.join(".git"),
@@ -1240,18 +1240,18 @@ mod tests {
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
 
-        // Expected entries found by WalkDir:
-        // - bare_container (processed as GitRepo, identified as bare exclusive container, skipped)
-        // - worktrees_of_bare_container (processed as Plain, skipped by worktree container check)
-        // - wt_a (processed as GitWorktree, linked to bare_container)
-        // Worktree wt_a is also listed when processing bare_container. Deduplication ensures it's listed once.
+        // Expected entries:
+        // - bare_container (processed as GitRepository because it contains a .git file pointing to a bare repo)
+        // - worktrees_of_bare_container (processed as Plain, but skipped by the worktree container check)
+        // - wt_a (processed as GitWorktree, linked to bare_container, found when processing bare_container)
+        // The container check for worktrees_of_bare_container should skip it.
 
         let bare_container_entry = entries
             .iter()
             .find(|e| e.resolved_path.ends_with("bare_container"));
         assert!(
-            bare_container_entry.is_none(),
-            "Bare repo container itself should be skipped. Entries: {entries:?}"
+            bare_container_entry.is_some(),
+            "Bare repo container itself should be listed. Entries: {entries:?}"
         );
 
         let worktrees_dir_entry = entries
@@ -1269,11 +1269,11 @@ mod tests {
         );
         assert_entry_properties(&entries, "wt_a", "GitWorktree", "[bare_container] wt_a");
 
-        // Expected entries: wt_a = 1
+        // Expected entries: bare_container, wt_a = 2
         assert_eq!(
             entries.len(),
-            1,
-            "Expected 1 entry (worktree). Entries: {entries:?}"
+            2,
+            "Expected 2 entries (container repo, worktree). Entries: {entries:?}"
         );
     }
 
