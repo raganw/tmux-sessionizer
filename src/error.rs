@@ -4,7 +4,54 @@
 //! and provide convenient error handling throughout the application. It aggregates
 //! errors from various sources like I/O, Git operations, configuration, etc.
 
+use std::io;
+use std::path::PathBuf;
+use regex;
 use thiserror::Error;
+use toml;
+
+// Define new error enums for configuration and path validation issues
+#[derive(Debug, Error)]
+pub enum ConfigError {
+    #[error("Could not determine the system config directory")]
+    CannotDetermineConfigDir,
+
+    #[error("Failed to read configuration file '{path}': {source}")]
+    FileReadError { path: PathBuf, source: io::Error },
+
+    #[error("Failed to parse configuration file '{path}': {source}")]
+    FileParseError {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+
+    #[error("Invalid configuration value: {message}")]
+    Validation { message: String }, // General validation error
+
+    #[error("Invalid regex pattern '{pattern}' in configuration: {source}")]
+    InvalidRegex {
+        pattern: String,
+        source: regex::Error,
+    },
+
+    #[error("Path validation failed: {0}")]
+    InvalidPath(#[from] PathValidationError),
+}
+
+#[derive(Debug, Error)]
+pub enum PathValidationError {
+    #[error("Path does not exist: '{path}'")]
+    DoesNotExist { path: PathBuf },
+
+    #[error("Path is not a directory: '{path}'")]
+    NotADirectory { path: PathBuf },
+
+    #[error("Permission denied for path: '{path}'")]
+    PermissionDenied { path: PathBuf }, // Note: May be hard to distinguish reliably from other errors
+
+    #[error("Filesystem error checking path '{path}': {source}")]
+    FilesystemError { path: PathBuf, source: io::Error },
+}
 
 /// The primary error type used throughout the `tmux-sessionizer` application.
 ///
@@ -15,7 +62,7 @@ use thiserror::Error;
 pub enum AppError {
     /// Errors related to application configuration loading or validation.
     #[error("Configuration error: {0}")]
-    _Config(String),
+    Config(#[from] ConfigError), // Changed from String to ConfigError
 
     /// Errors encountered during directory scanning or processing.
     #[error("Directory scanning error: {0}")]

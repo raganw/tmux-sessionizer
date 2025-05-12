@@ -4,11 +4,39 @@
 // and the main `Config` struct that holds the application's runtime settings.
 
 use clap::Parser;
+use crate::error::{ConfigError, PathValidationError};
+use clap::Parser;
 use regex::Regex;
 use serde::Deserialize;
 use serde_derive::Deserialize;
+use std::fs;
+use std::io;
 use std::path::PathBuf;
-use tracing::debug;
+use tracing::{debug, error, info, trace, warn};
+
+/// Validates a single path to ensure it exists and is a directory.
+fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathValidationError> {
+    trace!(path = %path.display(), "Validating path");
+    match fs::metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                trace!(path = %path.display(), "Path is a valid directory");
+                Ok(())
+            } else {
+                warn!(path = %path.display(), "Path exists but is not a directory");
+                Err(PathValidationError::NotADirectory { path: path.clone() })
+            }
+        }
+        Err(e) => {
+            error!(path = %path.display(), error = %e, "Error accessing path metadata");
+            match e.kind() {
+                io::ErrorKind::NotFound => Err(PathValidationError::DoesNotExist { path: path.clone() }),
+                io::ErrorKind::PermissionDenied => Err(PathValidationError::PermissionDenied { path: path.clone() }),
+                _ => Err(PathValidationError::FilesystemError { path: path.clone(), source: e }),
+            }
+        }
+    }
+}
 
 /// Command-line arguments parsed by clap.
 #[derive(Parser, Debug)]
@@ -116,6 +144,16 @@ impl Config {
         default_config.direct_selection = args.direct_selection;
 
         default_config
+    }
+
+    /// Validates the configuration, checking if specified paths exist and are directories.
+    fn validate(&self) -> std::result::Result<(), ConfigError> {
+        info!("Validating configuration paths");
+        for path in self.search_paths.iter().chain(self.additional_paths.iter()) {
+             validate_path_is_directory(path)?; // The ? automatically converts PathValidationError to ConfigError::InvalidPath
+        }
+        debug!("All configured paths validated successfully.");
+        Ok(())
     }
 }
 
