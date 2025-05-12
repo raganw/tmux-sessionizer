@@ -74,14 +74,37 @@ impl<'a> DirectoryScanner<'a> {
         }
     }
 
+    /// Processes a single potential directory path found during the scan.
+    ///
+    /// This function performs the core logic for a single path:
+    /// 1. Canonicalizes the path.
+    /// 2. Checks if it's already processed (using the shared `processed_resolved_paths_mux`).
+    /// 3. Applies exclusion rules (patterns, hidden directories unless explicitly added).
+    /// 4. Detects the directory type (Plain, Git Repository, Git Worktree, Worktree Container).
+    /// 5. For Git repositories, lists linked worktrees and adds entries for them (avoiding duplicates).
+    /// 6. Skips directories identified as worktree containers.
+    /// 7. Creates `DirectoryEntry` structs for valid directories/worktrees found.
+    ///
+    /// # Arguments
+    ///
+    /// * `original_path` - The path as found by `WalkDir` or from `additional_paths`.
+    /// * `is_explicitly_added` - True if the path came from `config.additional_paths`.
+    /// * `processed_resolved_paths_mux` - A mutex guarding a shared set of canonical paths
+    ///   that have already been processed or claimed, to prevent duplicates.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing a `Vec<DirectoryEntry>` for the entries generated from this path
+    /// (which could be the path itself and/or its linked worktrees), or an `AppError` if
+    /// a critical error occurred (like mutex poisoning or initial canonicalization failure).
+    /// Returns `Ok(Vec::new())` if the path is skipped due to filters, duplication, or being a container.
     #[allow(clippy::too_many_lines)]
     fn process_path_candidate(
         &self,
-        original_path: PathBuf, // Path as found by WalkDir or from additional_paths
-        is_explicitly_added: bool, // New flag
-        processed_resolved_paths_mux: &Mutex<HashSet<PathBuf>>, // Changed parameter
+        original_path: PathBuf,
+        is_explicitly_added: bool,
+        processed_resolved_paths_mux: &Mutex<HashSet<PathBuf>>,
     ) -> Result<Vec<DirectoryEntry>> {
-        // Changed return type
         let candidate_span =
             span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
         let _enter = candidate_span.enter();
@@ -410,13 +433,11 @@ impl<'a> DirectoryScanner<'a> {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::directory_scanner::DirectoryType; // Added for matching
-    use git2::{Repository, Signature, WorktreeAddOptions}; // Added Signature
-    use std::fs::{self, File}; // Added File
-    use std::path::Path; // Added Path
+    use crate::directory_scanner::DirectoryType;
+    use git2::{Repository, Signature, WorktreeAddOptions};
+    use std::fs::{self, File};
+    use std::path::Path;
     use tempfile::tempdir;
-    // Required for MutexGuard, though not directly used in assertions, it's part of process_entry signature
-    // use std::sync::MutexGuard; No, this is an internal detail, not needed for test setup.
 
     // Helper to initialize a standard git repo
     fn init_repo(path: &Path) -> Repository {
@@ -430,7 +451,6 @@ mod tests {
 
     // Helper to add a worktree to a bare repository
     fn add_worktree_to_bare(bare_repo: &Repository, worktree_name: &str, worktree_path: &Path) {
-        // Changed return type from Repository to ()
         // Create an initial commit if the repo is empty, which is necessary for worktree creation.
         if bare_repo.is_empty().unwrap_or(true) {
             let mut index = bare_repo
@@ -462,10 +482,8 @@ mod tests {
             .unwrap_or_else(|_| {
                 panic!("Failed to add worktree '{worktree_name}' at path {worktree_path:?}")
             });
-        // Repository::open(worktree_path).expect("Failed to open added worktree") // Removed return value
     }
 
-    // *** ADD THIS FUNCTION ***
     // New helper: Add a worktree to a standard repository
     fn add_worktree_to_standard_repo(
         repo_path: &Path,              // Path to the standard repository's working directory
@@ -473,6 +491,7 @@ mod tests {
         worktree_checkout_path: &Path, // Path where the new worktree will be checked out
     ) {
         let repo = Repository::open(repo_path).expect("Failed to open repo for adding worktree");
+        // Create an initial commit if the repo has no HEAD (is empty)
         if repo.head().is_err() {
             let mut index = repo.index().expect("Failed to get repo index");
             // Create an empty file to be able to create a non-empty tree
@@ -511,7 +530,6 @@ mod tests {
         }
     }
 
-    // *** ADD THIS FUNCTION ***
     // Helper to find an entry by a suffix of its resolved_path
     // and assert its properties.
     fn assert_entry_properties(
@@ -573,12 +591,14 @@ mod tests {
         let bare_repo_actual_path = container_path.join(bare_repo_dir_name);
         fs::create_dir(&bare_repo_actual_path).unwrap();
         let _ = init_bare_repo(&bare_repo_actual_path); // Initialize the bare repo
+        // Simulate the .git file pointing to the bare repo dir, making container_path act like a repo
         fs::write(
             container_path.join(".git"),
             format!("gitdir: {bare_repo_dir_name}"),
         )
-        .unwrap(); // Link .git file
+        .unwrap();
 
+        // Open the container path as the repo object to add worktrees
         let container_repo_obj = Repository::open(&container_path)
             .expect("Failed to open container path as repo for test setup");
 
@@ -607,7 +627,7 @@ mod tests {
             .unwrap_or_default()
             .to_string_lossy();
 
-        // The container itself should NOT be an entry
+        // The container itself should NOT be an entry because it's detected as a bare repo exclusive container
         assert!(
             !entries
                 .iter()
@@ -616,7 +636,7 @@ mod tests {
             &entries
         );
 
-        // Its worktrees SHOULD be entries
+        // Its worktrees SHOULD be entries, listed via the container repo processing
         let wt1_entry = entries
             .iter()
             .find(|e| e.resolved_path == canonical_wt1_path);
@@ -668,16 +688,8 @@ mod tests {
         );
 
         // Total entries: wt1, wt2, plain_project = 3
-        // Note: The order of entries might change due to parallel processing.
-        // The exact number of entries depends on how linked worktrees are handled if their paths
-        // are also discovered independently. The Mutex<HashSet> for processed_resolved_paths
-        // aims to prevent double-listing of the *same resolved path* if it's encountered
-        // as a top-level item. Worktrees listed as children of a repo are distinct entries
-        // unless their resolved path was already processed as a top-level item.
-        // In this specific test, container_path is a top-level item. It's skipped.
-        // Its worktrees (wt1_path, wt2_path) are added because list_linked_worktrees is called.
-        // If wt1_path or wt2_path were *also* direct children of base_dir and thus top-level items,
-        // the Mutex would prevent them from being processed twice. Here they are not.
+        // The container itself is skipped. Its worktrees are found via list_linked_worktrees.
+        // The plain project is found by WalkDir.
         assert_eq!(
             entries.len(),
             3,
@@ -688,61 +700,44 @@ mod tests {
 
     #[test]
     fn test_scan_excludes_worktree_container() {
-        // This tests the original check_if_worktree_container
+        // This tests the check_if_worktree_container for non-repo directories
         let base_dir = tempdir().unwrap();
-        let main_repo_dir = base_dir.path().join("main_bare_repo_for_other_container"); // Different main repo
+        let main_repo_dir = base_dir.path().join("main_bare_repo_for_other_container");
         fs::create_dir(&main_repo_dir).unwrap();
-        let _main_repo = init_bare_repo(&main_repo_dir);
+        let main_repo = init_bare_repo(&main_repo_dir);
 
-        // This container is NOT a repo itself, its children are worktrees of _main_repo
+        // This container is NOT a repo itself, its children are worktrees of main_repo
         let non_repo_container_dir_path = base_dir.path().join("non_repo_worktree_holder");
         fs::create_dir(&non_repo_container_dir_path).unwrap();
 
         let wt1_path = non_repo_container_dir_path.join("wt1_in_non_repo_container");
-        add_worktree_to_bare(&_main_repo, "wt1_in_non_repo_container", &wt1_path);
+        add_worktree_to_bare(&main_repo, "wt1_in_non_repo_container", &wt1_path);
         let wt2_path = non_repo_container_dir_path.join("wt2_in_non_repo_container");
-        add_worktree_to_bare(&_main_repo, "wt2_in_non_repo_container", &wt2_path);
+        add_worktree_to_bare(&main_repo, "wt2_in_non_repo_container", &wt2_path);
 
         let plain_dir_path = base_dir.path().join("plain_project_for_container_test");
         fs::create_dir(&plain_dir_path).unwrap();
 
         let mut config = default_test_config();
-        config.search_paths = vec![base_dir.path().to_path_buf()];
+        config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan children of base_dir
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
 
         let canonical_main_repo_dir = fs::canonicalize(&main_repo_dir).unwrap();
-        // wt1 and wt2 are children of non_repo_container_dir_path.
-        // non_repo_container_dir_path itself is scanned as a top-level item.
-        // It should be identified as a worktree container and skipped (returning Ok(vec![])).
-        // The worktrees wt1 and wt2 are *also* listed because main_repo_dir (another top-level item)
-        // is processed, and list_linked_worktrees is called on it.
         let canonical_wt1_path = fs::canonicalize(&wt1_path).unwrap();
         let canonical_wt2_path = fs::canonicalize(&wt2_path).unwrap();
         let canonical_plain_dir_path = fs::canonicalize(&plain_dir_path).unwrap();
         let canonical_container_dir_path = fs::canonicalize(&non_repo_container_dir_path).unwrap();
 
+        // main_repo_dir is found by WalkDir, processed, lists its worktrees (wt1, wt2)
         assert!(
             entries
                 .iter()
-                .any(|e| e.resolved_path == canonical_main_repo_dir)
+                .any(|e| e.resolved_path == canonical_main_repo_dir),
+            "Main bare repo should be listed"
         );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.resolved_path == canonical_wt1_path)
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.resolved_path == canonical_wt2_path)
-        );
-        assert!(
-            entries
-                .iter()
-                .any(|e| e.resolved_path == canonical_plain_dir_path)
-        );
+        // non_repo_container_dir_path is found by WalkDir, processed, identified as container, skipped
         assert!(
             !entries
                 .iter()
@@ -750,12 +745,32 @@ mod tests {
             "Non-repo worktree container should be excluded. Entries: {:?}",
             &entries
         );
+        // wt1 and wt2 are listed because main_repo_dir listed them
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_wt1_path),
+            "Worktree 1 should be listed"
+        );
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_wt2_path),
+            "Worktree 2 should be listed"
+        );
+        // plain_dir_path is found by WalkDir, processed as Plain
+        assert!(
+            entries
+                .iter()
+                .any(|e| e.resolved_path == canonical_plain_dir_path),
+            "Plain project should be listed"
+        );
 
-        // main_repo_dir, its 2 worktrees, plain_project = 4 entries
+        // Total entries: main_repo_dir, wt1, wt2, plain_dir_path = 4
         assert_eq!(
             entries.len(),
             4,
-            "Expected 4 entries. Entries: {:?}",
+            "Expected 4 entries (main repo, 2 worktrees, 1 plain). Entries: {:?}",
             &entries
         );
     }
@@ -777,13 +792,16 @@ mod tests {
         add_worktree_to_bare(&main_bare_repo, "wt_one", &worktree1_path);
 
         let mut config = default_test_config();
-        config.search_paths = vec![base_dir.path().to_path_buf()];
+        config.search_paths = vec![base_dir.path().to_path_buf()]; // Scan children of base_dir
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
 
-        // Expected: plain_project, git_project, central_bare.git, worktree_one
-        // central_bare.git will list worktree_one.
-        // If worktree_one is also processed as a top-level item, the Mutex should prevent duplication.
+        // Expected entries found by WalkDir:
+        // - my_plain_project (Plain)
+        // - my_git_project (GitRepository)
+        // - central_bare.git (GitRepository, lists wt_one)
+        // - worktree_one (GitWorktree, linked to central_bare.git)
+        // Deduplication via Mutex ensures worktree_one is only listed once.
         assert_eq!(
             entries.len(),
             4,
@@ -808,12 +826,13 @@ mod tests {
                 .any(|e| e.resolved_path == canonical_git_project_path
                     && e.entry_type == DirectoryType::GitRepository)
         );
+        // The bare repo itself is an entry (assuming not detected as exclusive container)
         assert!(
             entries
                 .iter()
                 .any(|e| e.resolved_path == canonical_main_bare_repo_path
                     && e.entry_type == DirectoryType::GitRepository)
-        ); // The bare repo itself is an entry
+        );
         let wt1_entry = entries
             .iter()
             .find(|e| e.resolved_path == canonical_worktree1_path);
@@ -830,47 +849,46 @@ mod tests {
 
     #[test]
     fn test_scan_with_tilde_expansion_and_additional_paths() {
-        // This test is a bit conceptual for tilde as it depends on `dirs::home_dir()`
-        // We'll simulate a structure that would be found if tilde expansion worked.
-        let home_sim_dir = tempdir().unwrap();
-        let dev_dir_in_home = home_sim_dir.path().join("Development");
-        fs::create_dir_all(&dev_dir_in_home).unwrap();
-        let project_in_dev_path = dev_dir_in_home.join("my_dev_project");
-        fs::create_dir(&project_in_dev_path).unwrap();
+        // This test relies on the actual home directory existing.
+        // It simulates adding "~/test_dev_project" and "/tmp/other_proj" (using tempdir for the latter).
+        let home_dir = dirs::home_dir().expect("Cannot run test without a home directory");
+        let dev_project_in_home = home_dir.join("test_dev_project_for_scanner");
+        fs::create_dir_all(&dev_project_in_home)
+            .expect("Failed to create test dir in home");
 
         let other_loc_dir = tempdir().unwrap();
         let additional_project_path = other_loc_dir.path().join("additional_proj");
         fs::create_dir(&additional_project_path).unwrap();
 
-        // Mock `expand_tilde` for this test by using paths that don't need it,
-        // or ensure the test environment has a home dir.
-        // For simplicity, we'll use absolute paths in config for this test,
-        // assuming `expand_tilde` is tested elsewhere or works.
-        // Or, we can test `expand_tilde` separately.
-        // Here, we'll construct search_paths that mimic post-tilde-expansion.
-
         let mut config = default_test_config();
-        // If we could mock dirs::home_dir(), we'd use "~/Development"
-        // Instead, use the actual path for testing the rest of scan logic
-        config.search_paths = vec![dev_dir_in_home.clone()];
+        // Use a path starting with "~/" for search_paths
+        config.search_paths = vec![PathBuf::from("~/test_dev_project_for_scanner")];
+        // Use an absolute path for additional_paths
         config.additional_paths = vec![additional_project_path.clone()];
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
 
-        assert_eq!(entries.len(), 2, "Entries: {:?}", &entries);
+        // Clean up the directory created in home
+        let _ = fs::remove_dir_all(&dev_project_in_home);
 
-        let canonical_project_in_dev_path = fs::canonicalize(&project_in_dev_path).unwrap();
+        // WalkDir on "~/test_dev_project_for_scanner" finds nothing inside it.
+        // The additional path "additional_proj" is added directly.
+        assert_eq!(entries.len(), 1, "Entries: {:?}", &entries);
+
         let canonical_additional_project_path = fs::canonicalize(&additional_project_path).unwrap();
         assert!(
             entries
                 .iter()
-                .any(|e| e.resolved_path == canonical_project_in_dev_path)
+                .any(|e| e.resolved_path == canonical_additional_project_path),
+            "Additional project was not found"
         );
+        // The search path itself ("~/test_dev_project_for_scanner") is not listed, only its contents (none).
         assert!(
-            entries
+            !entries
                 .iter()
-                .any(|e| e.resolved_path == canonical_additional_project_path)
+                .any(|e| e.resolved_path == dev_project_in_home),
+            "Search path itself should not be listed"
         );
     }
 
@@ -882,7 +900,7 @@ mod tests {
         let project_b_path = base_dir.path().join("project_b_exclude");
         fs::create_dir(&project_b_path).unwrap();
 
-        use regex::Regex; // Move Regex import here as it's only used in this test block
+        use regex::Regex;
         let mut config = default_test_config();
         config.search_paths = vec![base_dir.path().to_path_buf()];
         config.exclude_patterns = vec![Regex::new("_exclude$").unwrap()];
@@ -969,8 +987,6 @@ mod tests {
         );
     }
 
-    // *** ADD ALL THE FOLLOWING TESTS ***
-
     #[test]
     fn test_scan_empty_directory() {
         let temp_dir = tempdir().unwrap();
@@ -1046,7 +1062,7 @@ mod tests {
         fs::create_dir(temp_dir.path().join("project1")).unwrap();
         fs::create_dir(temp_dir.path().join("node_modules")).unwrap();
         fs::create_dir(temp_dir.path().join("project2")).unwrap();
-        use regex::Regex; // Move Regex import here as it's only used in this test block
+        use regex::Regex;
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
@@ -1072,7 +1088,7 @@ mod tests {
         fs::create_dir(temp_dir.path().join("project_code")).unwrap();
         fs::create_dir(temp_dir.path().join("logs_dir_main")).unwrap();
         fs::create_dir(temp_dir.path().join("another_dir")).unwrap();
-        use regex::Regex; // Move Regex import here as it's only used in this test block
+        use regex::Regex;
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
@@ -1099,7 +1115,7 @@ mod tests {
         fs::create_dir(temp_dir.path().join("target")).unwrap();
         fs::create_dir(temp_dir.path().join("docs")).unwrap();
         fs::create_dir(temp_dir.path().join("vendor")).unwrap();
-        use regex::Regex; // Move Regex import here as it's only used in this test block
+        use regex::Regex;
 
         let mut config = default_test_config();
         config.search_paths = vec![temp_dir.path().to_path_buf()];
@@ -1135,76 +1151,67 @@ mod tests {
 
     #[test]
     fn test_scan_bare_git_repository_as_container() {
-        // This test assumes the container_detector identifies it correctly.
-        // The scanner itself should just list it as GitRepository unless the detector logic
-        // inside process_path_candidate skips it.
-        // Let's refine this test based on the current logic in process_path_candidate.
+        // Test setup where a bare repo acts as a container via a .git file link
         let temp_dir = tempdir().unwrap();
-        let bare_repo_path = temp_dir.path().join("my_bare_repo.git");
-        let bare_repo = init_bare_repo(&bare_repo_path);
+        let container_path = temp_dir.path().join("bare_container");
+        fs::create_dir(&container_path).unwrap();
+        let bare_repo_actual_path = container_path.join("internal_bare.git");
+        let bare_repo = init_bare_repo(&bare_repo_actual_path);
+        fs::write(
+            container_path.join(".git"),
+            format!("gitdir: {}", bare_repo_actual_path.display()),
+        )
+        .unwrap();
 
-        // Add a worktree so it *might* be detected as a container
-        let worktrees_dir = temp_dir.path().join("worktrees_of_bare");
+        // Add a worktree linked to the bare repo via the container path
+        let worktrees_dir = temp_dir.path().join("worktrees_of_bare_container");
         fs::create_dir(&worktrees_dir).unwrap();
         let wt_a_path = worktrees_dir.join("wt_a");
-        add_worktree_to_bare(&bare_repo, "wt_a", &wt_a_path);
+        // Open the container path as the repo object to add worktrees
+        let container_repo_obj = Repository::open(&container_path)
+            .expect("Failed to open container path as repo for test setup");
+        add_worktree_to_bare(&container_repo_obj, "wt_a", &wt_a_path);
 
         let mut config = default_test_config();
-        config.search_paths = vec![temp_dir.path().to_path_buf()];
+        config.search_paths = vec![temp_dir.path().to_path_buf()]; // Scan parent
 
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
 
-        // Current logic in process_path_candidate:
-        // 1. Checks if it's a git repo -> Yes (bare)
-        // 2. Checks if repo.is_bare() && container_detector::is_bare_repo_worktree_exclusive_container()
-        //    - If true, it skips adding the bare repo itself.
-        //    - If false, it adds the bare repo as GitRepository.
-        // 3. Lists linked worktrees (wt_a).
-        // 4. WalkDir also finds worktrees_of_bare (Plain) and wt_a (Worktree).
-        // 5. Deduplication happens via Mutex.
+        // Expected entries found by WalkDir:
+        // - bare_container (processed as GitRepo, identified as bare exclusive container, skipped)
+        // - worktrees_of_bare_container (processed as Plain, skipped by worktree container check)
+        // - wt_a (processed as GitWorktree, linked to bare_container)
+        // Worktree wt_a is also listed when processing bare_container. Deduplication ensures it's listed once.
 
-        // Let's assume the container detector *does* identify it as exclusive container.
-        // Then the bare repo itself should NOT be listed.
-        // UPDATE: Assuming the detector does NOT identify this specific setup as exclusive,
-        // the bare repo *should* be listed. Let's test for that.
-        let bare_repo_entry = entries
+        let bare_container_entry = entries
             .iter()
-            .find(|e| e.resolved_path.ends_with("my_bare_repo.git"));
+            .find(|e| e.resolved_path.ends_with("bare_container"));
         assert!(
-            bare_repo_entry.is_some(),
-            "Bare repo should be listed. Entries: {entries:?}"
-        );
-        assert_entry_properties(
-            &entries,
-            "my_bare_repo.git",
-            "GitRepository",
-            "my_bare_repo.git",
+            bare_container_entry.is_none(),
+            "Bare repo container itself should be skipped. Entries: {entries:?}"
         );
 
-        // The worktree should be listed.
+        let worktrees_dir_entry = entries
+            .iter()
+            .find(|e| e.resolved_path.ends_with("worktrees_of_bare_container"));
+        assert!(
+            worktrees_dir_entry.is_none(),
+            "Worktree container dir should be skipped. Entries: {entries:?}"
+        );
+
         let wt_a_entry = entries.iter().find(|e| e.resolved_path.ends_with("wt_a"));
         assert!(
             wt_a_entry.is_some(),
             "Worktree wt_a should be listed. Entries: {entries:?}"
         );
-        assert_entry_properties(&entries, "wt_a", "GitWorktree", "[my_bare_repo.git] wt_a");
+        assert_entry_properties(&entries, "wt_a", "GitWorktree", "[bare_container] wt_a");
 
-        // The directory containing the worktree should also be listed if found by WalkDir.
-        let worktrees_dir_entry = entries
-            .iter()
-            .find(|e| e.resolved_path.ends_with("worktrees_of_bare"));
-        // UPDATE: Assuming check_if_worktree_container correctly skips "worktrees_of_bare"
-        assert!(
-            worktrees_dir_entry.is_none(),
-            "Worktree container dir ('worktrees_of_bare') should be skipped. Entries: {entries:?}"
-        );
-
-        // Expected entries: my_bare_repo.git, wt_a = 2
+        // Expected entries: wt_a = 1
         assert_eq!(
             entries.len(),
-            2,
-            "Expected 2 entries (bare repo, worktree). Entries: {entries:?}"
+            1,
+            "Expected 1 entry (worktree). Entries: {entries:?}"
         );
     }
 
@@ -1234,12 +1241,11 @@ mod tests {
         );
         let entry = &entries[0];
         assert!(entry.resolved_path.ends_with("wt1"));
-        assert_eq!(entry.display_name, "[main_repo] wt1"); // Updated expected display name format
+        assert_eq!(entry.display_name, "[main_repo] wt1");
         match &entry.entry_type {
             DirectoryType::GitWorktree {
                 main_worktree_path, ..
             } => {
-                // Removed worktree_name check
                 assert_eq!(
                     *main_worktree_path,
                     fs::canonicalize(&main_repo_path).unwrap()
@@ -1271,11 +1277,12 @@ mod tests {
         let mut entries = scanner.scan();
         entries.sort_by(|a, b| a.resolved_path.cmp(&b.resolved_path));
 
-        // Expected:
-        // - bare_repo.git (skipped if detected as exclusive container, otherwise GitRepository)
-        // - worktrees_of_bare (Plain)
-        // - wt_a (GitWorktree, listed via bare repo processing or WalkDir + Mutex)
-        // - wt_b (GitWorktree, listed via bare repo processing or WalkDir + Mutex)
+        // Expected entries found by WalkDir:
+        // - bare_repo.git (GitRepository, lists wt_a, wt_b)
+        // - worktrees_of_bare (Plain, skipped by container check)
+        // - wt_a (GitWorktree, linked to bare_repo.git)
+        // - wt_b (GitWorktree, linked to bare_repo.git)
+        // Deduplication ensures wt_a and wt_b are listed once.
 
         // Assuming bare repo is NOT detected as exclusive container in this setup:
         let bare_repo_entry = entries
@@ -1291,12 +1298,11 @@ mod tests {
             .iter()
             .find(|e| e.resolved_path.ends_with("wt_a"))
             .expect("wt_a not found");
-        assert_eq!(wt_a_entry.display_name, "[bare_repo.git] wt_a"); // Updated expected display name
+        assert_eq!(wt_a_entry.display_name, "[bare_repo.git] wt_a");
         match &wt_a_entry.entry_type {
             DirectoryType::GitWorktree {
                 main_worktree_path, ..
             } => {
-                // Removed worktree_name check
                 // For a bare repo, main_worktree_path points to the bare repo itself.
                 assert_eq!(
                     *main_worktree_path,
@@ -1313,12 +1319,11 @@ mod tests {
             .iter()
             .find(|e| e.resolved_path.ends_with("wt_b"))
             .expect("wt_b not found");
-        assert_eq!(wt_b_entry.display_name, "[bare_repo.git] wt_b"); // Updated expected display name
+        assert_eq!(wt_b_entry.display_name, "[bare_repo.git] wt_b");
         match &wt_b_entry.entry_type {
             DirectoryType::GitWorktree {
                 main_worktree_path, ..
             } => {
-                // Removed worktree_name check
                 assert_eq!(
                     *main_worktree_path,
                     fs::canonicalize(&bare_repo_path).unwrap()
@@ -1330,8 +1335,7 @@ mod tests {
             ),
         }
 
-        // Check that worktrees_of_bare (the containing directory) is also listed as Plain
-        // UPDATE: Assuming check_if_worktree_container correctly skips "worktrees_of_bare"
+        // Check that worktrees_of_bare (the containing directory) is skipped
         let worktrees_of_bare_entry = entries
             .iter()
             .find(|e| e.resolved_path.ends_with("worktrees_of_bare"));
@@ -1339,7 +1343,6 @@ mod tests {
             worktrees_of_bare_entry.is_none(),
             "worktrees_of_bare directory should be skipped. Entries: {entries:?}"
         );
-        // assert_entry_properties(&entries, "worktrees_of_bare", "Plain", "worktrees_of_bare"); // Removed this line
 
         // Ensure no duplicates for worktrees
         let wt_a_count = entries
@@ -1353,7 +1356,7 @@ mod tests {
             .count();
         assert_eq!(wt_b_count, 1, "wt_b should appear exactly once");
 
-        // Total entries: bare_repo.git, wt_a, wt_b
+        // Total entries: bare_repo.git, wt_a, wt_b = 3
         assert_eq!(
             entries.len(),
             3,
@@ -1370,7 +1373,7 @@ mod tests {
 
         let mut config = default_test_config();
         // Add the same path multiple times via different routes
-        config.search_paths = vec![temp_dir.path().to_path_buf()]; // Finds project_a
+        config.search_paths = vec![temp_dir.path().to_path_buf()]; // Finds project_a via WalkDir
         config.additional_paths = vec![project_a_path.clone()]; // Explicitly adds project_a
 
         let scanner = DirectoryScanner::new(&config);
@@ -1402,7 +1405,8 @@ mod tests {
         let scanner = DirectoryScanner::new(&config);
         let entries = scanner.scan();
 
-        // Expect "subdir" to be found as Plain. "my_repo" itself is the search root, not an entry found *within* it.
+        // Expect "subdir" to be found as Plain. "my_repo" itself is the search root,
+        // not an entry found *within* it by WalkDir starting there.
         assert_eq!(
             entries.len(),
             1,
