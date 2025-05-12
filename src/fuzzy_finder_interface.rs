@@ -55,7 +55,7 @@ impl FuzzyFinder {
     /// # Returns
     ///
     /// A single string where each line is a formatted directory entry.
-    pub fn prepare_skim_input(&self, entries: &[DirectoryEntry]) -> String {
+    pub fn prepare_skim_input(entries: &[DirectoryEntry]) -> String {
         entries
             .iter()
             .map(FuzzyFinder::format_directory_entry_for_skim)
@@ -74,13 +74,13 @@ impl FuzzyFinder {
     /// * `Ok(Some(SelectedItem))` if the user makes a selection.
     /// * `Ok(None)` if the user cancels the selection (e.g., by pressing Esc).
     /// * `Err(AppError)` if an error occurs during the Skim process or parsing the selection.
-    pub fn select(&self, entries: &[DirectoryEntry]) -> Result<Option<SelectedItem>> {
+    pub fn select(entries: &[DirectoryEntry]) -> Result<Option<SelectedItem>> {
         if entries.is_empty() {
             debug!("No entries provided to fuzzy finder, returning None.");
             return Ok(None);
         }
 
-        let skim_input = self.prepare_skim_input(entries); // Pass slice directly
+        let skim_input = Self::prepare_skim_input(entries); // Pass slice directly
         debug!("Skim input prepared with {} entries.", entries.len());
         if skim_input.is_empty() && !entries.is_empty() {
             // This case might happen if all entries somehow format to empty strings,
@@ -182,11 +182,12 @@ impl FuzzyFinder {
     /// # Returns
     ///
     /// * `Ok(Some(SelectedItem))` if a unique match is
-    /// found.
+    ///     found.
     /// * `Ok(None)` if no match is found.
     /// * `Err(AppError)` if an error occurs (e.g., ambiguity, I/O error during canonicalization).
+    #[allow(clippy::too_many_lines)]
     pub fn direct_select(
-        &self,
+        // &self, // Removed
         entries: &[DirectoryEntry],
         search_target_raw: &str,
     ) -> Result<Option<SelectedItem>> {
@@ -259,33 +260,37 @@ impl FuzzyFinder {
             .filter(|e| e.resolved_path.ends_with(&search_target_path))
             .collect();
 
-        if suffix_matches.len() == 1 {
-            let entry = suffix_matches[0];
-            debug!(
-                "Direct selection: Matched suffix '{}' to entry '{}' ({})",
-                search_target_path.display(),
-                entry.display_name,
-                entry.resolved_path.display()
-            );
-            return Ok(Some(SelectedItem {
-                display_name: entry.display_name.clone(),
-                path: entry.resolved_path.clone(),
-            }));
-        } else if suffix_matches.len() > 1 {
-            let matched_paths: Vec<String> = suffix_matches
-                .iter()
-                .map(|e| e.resolved_path.display().to_string())
-                .collect();
-            warn!(
-                "Direct selection: Search target '{}' is ambiguous by suffix, matched: {:?}",
-                search_target_raw, matched_paths
-            );
-            return Err(AppError::Finder(format!(
-                "Search target '{}' is ambiguous: {} entries end with this path. Matches: {:?}",
-                search_target_raw,
-                suffix_matches.len(),
-                matched_paths
-            )));
+        match suffix_matches.len() {
+            1 => {
+                let entry = suffix_matches[0];
+                debug!(
+                    "Direct selection: Matched suffix '{}' to entry '{}' ({})",
+                    search_target_path.display(),
+                    entry.display_name,
+                    entry.resolved_path.display()
+                );
+                return Ok(Some(SelectedItem {
+                    display_name: entry.display_name.clone(),
+                    path: entry.resolved_path.clone(),
+                }));
+            }
+            count if count > 1 => {
+                let matched_paths: Vec<String> = suffix_matches
+                    .iter()
+                    .map(|e| e.resolved_path.display().to_string())
+                    .collect();
+                warn!(
+                    "Direct selection: Search target '{}' is ambiguous by suffix, matched: {:?}",
+                    search_target_raw, matched_paths
+                );
+                return Err(AppError::Finder(format!(
+                    "Search target '{}' is ambiguous: {} entries end with this path. Matches: {:?}",
+                    search_target_raw,
+                    suffix_matches.len(),
+                    matched_paths
+                )));
+            }
+            _ => {} // No match or 0 matches, continue to next strategy
         }
 
         // Priority 4: Exact match on `entry.display_name`
@@ -293,33 +298,37 @@ impl FuzzyFinder {
             .iter()
             .filter(|e| e.display_name == search_target_raw)
             .collect();
-        if display_name_matches.len() == 1 {
-            let entry = display_name_matches[0];
-            debug!(
-                "Direct selection: Matched display name '{}' to entry '{}' ({})",
-                search_target_raw,
-                entry.display_name,
-                entry.resolved_path.display()
-            );
-            return Ok(Some(SelectedItem {
-                display_name: entry.display_name.clone(),
-                path: entry.resolved_path.clone(),
-            }));
-        } else if display_name_matches.len() > 1 {
-            let matched_displays: Vec<String> = display_name_matches
-                .iter()
-                .map(|e| format!("{} ({})", e.display_name, e.resolved_path.display()))
-                .collect();
-            warn!(
-                "Direct selection: Search target '{}' is ambiguous by display name, matched: {:?}",
-                search_target_raw, matched_displays
-            );
-            return Err(AppError::Finder(format!(
-                "Search target '{}' is ambiguous: {} entries have this display name. Matches: {:?}",
-                search_target_raw,
-                display_name_matches.len(),
-                matched_displays
-            )));
+        match display_name_matches.len() {
+            1 => {
+                let entry = display_name_matches[0];
+                debug!(
+                    "Direct selection: Matched display name '{}' to entry '{}' ({})",
+                    search_target_raw,
+                    entry.display_name,
+                    entry.resolved_path.display()
+                );
+                return Ok(Some(SelectedItem {
+                    display_name: entry.display_name.clone(),
+                    path: entry.resolved_path.clone(),
+                }));
+            }
+            count if count > 1 => {
+                let matched_displays: Vec<String> = display_name_matches
+                    .iter()
+                    .map(|e| format!("{} ({})", e.display_name, e.resolved_path.display()))
+                    .collect();
+                warn!(
+                    "Direct selection: Search target '{}' is ambiguous by display name, matched: {:?}",
+                    search_target_raw, matched_displays
+                );
+                return Err(AppError::Finder(format!(
+                    "Search target '{}' is ambiguous: {} entries have this display name. Matches: {:?}",
+                    search_target_raw,
+                    display_name_matches.len(),
+                    matched_displays
+                )));
+            }
+            _ => {} // No match or 0 matches, continue
         }
 
         // Priority 5: Filename match on `entry.resolved_path.file_name()`
@@ -331,42 +340,46 @@ impl FuzzyFinder {
                     .is_some_and(|name| name == search_target_raw)
             })
             .collect();
-        if filename_matches.len() == 1 {
-            let entry = filename_matches[0];
-            debug!(
-                "Direct selection: Matched filename '{}' to entry '{}' ({})",
-                search_target_raw,
-                entry.display_name,
-                entry.resolved_path.display()
-            );
-            return Ok(Some(SelectedItem {
-                display_name: entry.display_name.clone(),
-                path: entry.resolved_path.clone(),
-            }));
-        } else if filename_matches.len() > 1 {
-            let matched_filenames: Vec<String> = filename_matches
-                .iter()
-                .map(|e| {
-                    format!(
-                        "{} ({})",
-                        e.resolved_path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy(),
-                        e.resolved_path.display()
-                    )
-                })
-                .collect();
-            warn!(
-                "Direct selection: Search target '{}' is ambiguous by filename, matched: {:?}",
-                search_target_raw, matched_filenames
-            );
-            return Err(AppError::Finder(format!(
-                "Search target '{}' is ambiguous: {} entries have this filename. Matches: {:?}",
-                search_target_raw,
-                filename_matches.len(),
-                matched_filenames
-            )));
+        match filename_matches.len() {
+            1 => {
+                let entry = filename_matches[0];
+                debug!(
+                    "Direct selection: Matched filename '{}' to entry '{}' ({})",
+                    search_target_raw,
+                    entry.display_name,
+                    entry.resolved_path.display()
+                );
+                return Ok(Some(SelectedItem {
+                    display_name: entry.display_name.clone(),
+                    path: entry.resolved_path.clone(),
+                }));
+            }
+            count if count > 1 => {
+                let matched_filenames: Vec<String> = filename_matches
+                    .iter()
+                    .map(|e| {
+                        format!(
+                            "{} ({})",
+                            e.resolved_path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy(),
+                            e.resolved_path.display()
+                        )
+                    })
+                    .collect();
+                warn!(
+                    "Direct selection: Search target '{}' is ambiguous by filename, matched: {:?}",
+                    search_target_raw, matched_filenames
+                );
+                return Err(AppError::Finder(format!(
+                    "Search target '{}' is ambiguous: {} entries have this filename. Matches: {:?}",
+                    search_target_raw,
+                    filename_matches.len(),
+                    matched_filenames
+                )));
+            }
+            _ => {} // No match or 0 matches, continue
         }
 
         debug!(

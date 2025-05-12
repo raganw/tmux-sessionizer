@@ -42,7 +42,6 @@ impl<'a> DirectoryScanner<'a> {
 
     // Add a helper to add worktree entries to avoid repetition
     fn add_worktree_entry(
-        &self,
         original_wt_path: PathBuf, // The path as found by WalkDir or from git config
         resolved_wt_path: PathBuf, // The canonicalized path of the worktree
         main_repo_resolved_path: &Path,
@@ -87,6 +86,7 @@ impl<'a> DirectoryScanner<'a> {
         processed_resolved_paths: &mut HashSet<PathBuf>,
     ) -> Result<()> {
         // Changed return type
+        #[allow(clippy::too_many_lines)]
         let candidate_span =
             span!(Level::DEBUG, "process_path_candidate", path = %original_path.display());
         let _enter = candidate_span.enter();
@@ -162,7 +162,7 @@ impl<'a> DirectoryScanner<'a> {
                     if repo.is_worktree() {
                         match git_repository_handler::get_main_repository_path(&resolved_path) {
                             Ok(main_repo_path) => {
-                                self.add_worktree_entry(
+                                Self::add_worktree_entry(
                                     original_path.clone(), // Pass original path
                                     resolved_path.clone(), // Pass resolved path
                                     &main_repo_path,
@@ -173,7 +173,7 @@ impl<'a> DirectoryScanner<'a> {
                             }
                             Err(e) => {
                                 warn!(path = %resolved_path.display(), error = %e, "Failed to get main repository path for worktree, treating as plain directory");
-                                self.add_plain_directory_entry(
+                                Self::add_plain_directory_entry(
                                     original_path,
                                     resolved_path,
                                     basename_of_resolved_path,
@@ -234,7 +234,7 @@ impl<'a> DirectoryScanner<'a> {
                                                 warn!(wt_path = %wt_path_from_git.display(), resolved_wt_path = %canonical_wt_path.display(), "Linked worktree path is not a directory, skipping");
                                                 continue;
                                             }
-                                            self.add_worktree_entry(
+                                            Self::add_worktree_entry(
                                                 wt_path_from_git.clone(),
                                                 canonical_wt_path,
                                                 &main_repo_ref_path_for_display, // Use the determined reference path
@@ -263,7 +263,7 @@ impl<'a> DirectoryScanner<'a> {
                         debug!(path = %resolved_path.display(), "Identified as a Git worktree container (after failing to open as repo), skipping");
                         return Ok(()); // Changed to Ok(())
                     }
-                    self.add_plain_directory_entry(
+                    Self::add_plain_directory_entry(
                         original_path,
                         resolved_path,
                         basename_of_resolved_path,
@@ -285,7 +285,7 @@ impl<'a> DirectoryScanner<'a> {
                 return Ok(()); // Changed to Ok(())
             }
             // If not a container, then it's a plain directory
-            self.add_plain_directory_entry(
+            Self::add_plain_directory_entry(
                 original_path,
                 resolved_path,
                 basename_of_resolved_path,
@@ -298,7 +298,6 @@ impl<'a> DirectoryScanner<'a> {
 
     // Helper function to add plain directory entries
     fn add_plain_directory_entry(
-        &self,
         original_path: PathBuf,
         resolved_path: PathBuf,
         display_name: String, // This is already basename of resolved_path
@@ -339,9 +338,7 @@ impl<'a> DirectoryScanner<'a> {
             let path_span = span!(Level::DEBUG, "process_search_root", config_path = %search_path_config_entry.display());
             let _path_enter = path_span.enter();
 
-            let search_path_base = if let Some(p) = expand_tilde(search_path_config_entry) {
-                p
-            } else {
+            let Some(search_path_base) = expand_tilde(search_path_config_entry) else {
                 warn!(path = %search_path_config_entry.display(), "Could not expand tilde for search path, skipping");
                 continue;
             };
@@ -383,9 +380,7 @@ impl<'a> DirectoryScanner<'a> {
             let path_span = span!(Level::DEBUG, "process_additional_path", config_path = %additional_path_config_entry.display());
             let _path_enter = path_span.enter();
 
-            let original_path = if let Some(p) = expand_tilde(additional_path_config_entry) {
-                p
-            } else {
+            let Some(original_path) = expand_tilde(additional_path_config_entry) else {
                 warn!(path = %additional_path_config_entry.display(), "Could not expand tilde for additional path, skipping");
                 continue;
             };

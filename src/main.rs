@@ -59,14 +59,14 @@ fn main() -> Result<()> {
     // 4. Perform selection (direct or fuzzy)
     if let Some(direct_selection_target) = &config.direct_selection {
         tracing::info!(target = %direct_selection_target, "Attempting direct selection.");
-        selection_result = fuzzy_finder.direct_select(&scanned_entries, direct_selection_target);
+        selection_result = FuzzyFinder::direct_select(&scanned_entries, direct_selection_target);
     } else {
         tracing::info!("No direct selection provided, launching fuzzy finder.");
         if scanned_entries.is_empty() {
             tracing::info!("No scannable project directories found. Nothing to select.");
             return Ok(());
         }
-        selection_result = fuzzy_finder.select(&scanned_entries); // Pass as a slice reference
+        selection_result = FuzzyFinder::select(&scanned_entries); // Pass as a slice reference
     }
 
     // 5. Handle the selection outcome
@@ -84,32 +84,35 @@ fn main() -> Result<()> {
 
         if let Some(original_dir_entry) = original_dir_entry_opt {
             let session_manager = session_manager::SessionManager::new();
-            let sm_selection =
-                session_manager.create_selection_from_directory_entry(original_dir_entry);
+            let sm_selection = session_manager::SessionManager::create_selection_from_directory_entry(
+                original_dir_entry,
+            );
 
             tracing::info!("  Session Name: {}", sm_selection.session_name);
 
-            match session_manager.is_tmux_server_running() {
+            match session_manager::SessionManager::is_tmux_server_running() {
                 Ok(true) => {
                     tracing::info!("Tmux server is running.");
-                    match session_manager.session_exists(&sm_selection.session_name) {
+                    match session_manager::SessionManager::session_exists(&sm_selection.session_name) {
                         Ok(true) => {
                             tracing::info!(session_name = %sm_selection.session_name, "Session exists. Switching/Attaching.");
-                            session_manager
-                                .switch_or_attach_to_session(&sm_selection.session_name)?;
+                            session_manager::SessionManager::switch_or_attach_to_session(
+                                &sm_selection.session_name,
+                            )?;
                             tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to session.");
                         }
                         Ok(false) => {
                             tracing::info!(session_name = %sm_selection.session_name, "Session does not exist. Creating new session.");
-                            session_manager.create_new_session(
+                            session_manager::SessionManager::create_new_session(
                                 &sm_selection.session_name,
                                 &sm_selection.path,
                             )?;
                             tracing::info!(session_name = %sm_selection.session_name, "Successfully created session.");
 
                             tracing::info!(session_name = %sm_selection.session_name, "Attempting to switch/attach to newly created session.");
-                            session_manager
-                                .switch_or_attach_to_session(&sm_selection.session_name)?;
+                            session_manager::SessionManager::switch_or_attach_to_session(
+                                &sm_selection.session_name,
+                            )?;
                             tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to new session.");
                         }
                         Err(e) => {

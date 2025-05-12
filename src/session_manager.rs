@@ -45,7 +45,7 @@ impl SessionManager {
     ///
     /// A `String` suitable for use as a tmux session name.
     pub fn generate_session_name(
-        &self,
+        // &self, // Removed
         item_path: &Path,
         parent_repo_path: Option<&Path>,
     ) -> String {
@@ -84,7 +84,7 @@ impl SessionManager {
     /// * `Ok(true)` if a tmux server is running.
     /// * `Ok(false)` if no tmux server is running.
     /// * `Err(AppError::TmuxError)` if there was an issue communicating with tmux, other than the server not running.
-    pub fn is_tmux_server_running(&self) -> Result<bool> {
+    pub fn is_tmux_server_running() -> Result<bool> {
         debug!("Checking if tmux server is running.");
         // Attempt a benign command like listing sessions.
         // If it succeeds, server is running.
@@ -123,7 +123,7 @@ impl SessionManager {
     /// * `Ok(true)` if the session exists.
     /// * `Ok(false)` if the session does not exist or if the tmux server is not running.
     /// * `Err(AppError::TmuxError)` if there was an issue communicating with tmux, other than the server not running.
-    pub fn session_exists(&self, session_name: &str) -> Result<bool> {
+    pub fn session_exists(session_name: &str) -> Result<bool> {
         debug!("Checking if session '{}' exists.", session_name);
         match Tmux::new()
             .command(HasSession::new().target_session(session_name))
@@ -154,7 +154,7 @@ impl SessionManager {
     }
 
     /// Helper to check if currently inside a tmux session.
-    fn is_inside_tmux_session(&self) -> bool {
+    fn is_inside_tmux_session() -> bool {
         env::var("TMUX").is_ok()
     }
 
@@ -175,12 +175,12 @@ impl SessionManager {
     ///
     /// * `Ok(())` if the session was created successfully.
     /// * `Err(AppError::TmuxError)` if there was an error creating the session.
-    pub fn create_new_session(&self, session_name: &str, start_directory: &Path) -> Result<()> {
+    pub fn create_new_session(session_name: &str, start_directory: &Path) -> Result<()> {
         debug!(
             "Creating new session '{}' at path '{}'. Inside tmux: {}",
             session_name,
             start_directory.display(),
-            self.is_inside_tmux_session()
+            Self::is_inside_tmux_session()
         );
 
         let mut new_session_cmd = NewSession::new();
@@ -189,7 +189,7 @@ impl SessionManager {
         let start_dir_cow = start_directory.to_string_lossy();
         new_session_cmd = new_session_cmd.start_directory(start_dir_cow.as_ref());
 
-        if self.is_inside_tmux_session() {
+        if Self::is_inside_tmux_session() {
             new_session_cmd = new_session_cmd.detached();
         }
 
@@ -216,14 +216,14 @@ impl SessionManager {
     /// If not inside a tmux session, it uses `attach-session` to attach the current
     /// terminal to the specified session. This typically requires the tmux server to be running
     /// and the session to exist.
-    pub fn switch_or_attach_to_session(&self, session_name: &str) -> Result<()> {
+    pub fn switch_or_attach_to_session(session_name: &str) -> Result<()> {
         debug!(
             "Switching or attaching to session '{}'. Inside tmux: {}",
             session_name,
-            self.is_inside_tmux_session()
+            Self::is_inside_tmux_session()
         );
 
-        if self.is_inside_tmux_session() {
+        if Self::is_inside_tmux_session() {
             let switch_client_cmd = SwitchClient::new().target_session(session_name);
             Tmux::new()
                 .command(switch_client_cmd)
@@ -261,9 +261,9 @@ impl SessionManager {
     /// # Returns
     ///
     /// A `Selection` struct populated with details from the `DirectoryEntry`.
-    pub fn create_selection_from_directory_entry(&self, dir_entry: &DirectoryEntry) -> Selection {
+    pub fn create_selection_from_directory_entry(dir_entry: &DirectoryEntry) -> Selection {
         let session_name =
-            self.generate_session_name(&dir_entry.resolved_path, dir_entry.parent_path.as_deref());
+            Self::generate_session_name(&dir_entry.resolved_path, dir_entry.parent_path.as_deref());
         Selection {
             path: dir_entry.resolved_path.clone(),
             display_name: dir_entry.display_name.clone(),
