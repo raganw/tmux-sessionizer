@@ -1218,7 +1218,7 @@ mod tests {
         let container_path = temp_dir.path().join("bare_container");
         fs::create_dir(&container_path).unwrap();
         let bare_repo_actual_path = container_path.join("internal_bare.git");
-        let bare_repo = init_bare_repo(&bare_repo_actual_path);
+        init_bare_repo(&bare_repo_actual_path);
         fs::write(
             container_path.join(".git"),
             format!("gitdir: {}", bare_repo_actual_path.display()),

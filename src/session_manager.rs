@@ -95,7 +95,7 @@ impl SessionManager {
     ///
     /// * `Ok(true)` if a tmux server is running and responsive.
     /// * `Ok(false)` if no tmux server is running.
-    /// * `Err(AppError::TmuxError)` if there was an issue communicating with tmux (e.g., permission errors, unexpected output), other than the server simply not running.
+    /// * `Err(AppError::Tmux)` if there was an issue communicating with tmux (e.g., permission errors, unexpected output), other than the server simply not running.
     pub fn is_tmux_server_running() -> Result<bool> {
         debug!("Checking if tmux server is running.");
         // Attempt a benign command like listing sessions.
@@ -119,9 +119,7 @@ impl SessionManager {
                 }
                 // Otherwise, it's some other communication error.
                 error!("Error while checking tmux server status: {}", e);
-                Err(AppError::TmuxError(format!(
-                    "Failed to check tmux server status: {e}"
-                )))
+                Err(AppError::Tmux(e))
             }
         }
     }
@@ -136,7 +134,7 @@ impl SessionManager {
     ///
     /// * `Ok(true)` if a session with the exact `session_name` exists.
     /// * `Ok(false)` if the session does not exist or if the tmux server is not running (as a session cannot exist without a server).
-    /// * `Err(AppError::TmuxError)` if there was an issue communicating with tmux (e.g., permission errors), other than the server simply not running.
+    /// * `Err(AppError::Tmux)` if there was an issue communicating with tmux (e.g., permission errors), other than the server simply not running.
     pub fn session_exists(session_name: &str) -> Result<bool> {
         debug!("Checking if session '{}' exists.", session_name);
         match Tmux::with_command(HasSession::new().target_session(session_name)) // Use with_command for clarity
@@ -145,7 +143,10 @@ impl SessionManager {
         {
             Ok(status) => {
                 let exists = status.success();
-                debug!("Session '{}' exists check completed. Exists: {}.", session_name, exists);
+                debug!(
+                    "Session '{}' exists check completed. Exists: {}.",
+                    session_name, exists
+                );
                 Ok(exists)
             }
             Err(e) => {
@@ -163,9 +164,7 @@ impl SessionManager {
                 }
                 // Otherwise, it's some other communication error.
                 error!("Error while checking for session '{}': {}", session_name, e);
-                Err(AppError::TmuxError(format!(
-                    "Failed to check for session '{session_name}': {e}"
-                )))
+                Err(AppError::Tmux(e))
             }
         }
     }
@@ -266,7 +265,10 @@ impl SessionManager {
                 .command(switch_client_cmd)
                 .output()
                 .map(|_| {
-                    debug!("Successfully executed switch-client to session '{}'.", session_name);
+                    debug!(
+                        "Successfully executed switch-client to session '{}'.",
+                        session_name
+                    );
                 })
                 .map_err(|e| {
                     let err_msg =
@@ -282,7 +284,10 @@ impl SessionManager {
                 .command(attach_session_cmd)
                 .output()
                 .map(|_| {
-                    debug!("Successfully executed attach-session for session '{}'.", session_name);
+                    debug!(
+                        "Successfully executed attach-session for session '{}'.",
+                        session_name
+                    );
                 })
                 .map_err(|e| {
                     let err_msg = format!("Failed to attach to tmux session '{session_name}': {e}");
