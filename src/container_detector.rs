@@ -1,9 +1,16 @@
+//! Detects special types of Git repository structures, specifically "worktree containers".
+//!
+//! This module provides functions to identify directories that act as containers
+//! for Git worktrees, distinguishing between bare repositories that contain their
+//! own worktrees and plain directories that exclusively contain worktrees from a
+//! single main repository.
+
 use crate::error::Result;
 use crate::git_repository_handler;
 use git2::Repository;
 use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf}; // PathBuf is used
+use std::path::{Path, PathBuf};
 use tracing::{Level, debug, span, warn};
 
 /// Checks if the given path, which is known to be a bare Git repository,
