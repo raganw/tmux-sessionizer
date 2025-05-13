@@ -71,18 +71,31 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
     config_path.push("tmux-sessionizer.toml"); // The config file itself
 
     // Use eprintln! for logging before tracing is initialized
-    eprintln!("[DEBUG] Attempting to load configuration from file: {}", config_path.display());
+    eprintln!(
+        "[DEBUG] Attempting to load configuration from file: {}",
+        config_path.display()
+    );
 
     if !config_path.exists() {
-        eprintln!("[INFO] Configuration file not found at {}. Proceeding with defaults and CLI arguments.", config_path.display());
+        eprintln!(
+            "[INFO] Configuration file not found at {}. Proceeding with defaults and CLI arguments.",
+            config_path.display()
+        );
         return Ok(None);
     }
 
-    eprintln!("[INFO] Configuration file found at {}. Reading and parsing.", config_path.display());
+    eprintln!(
+        "[INFO] Configuration file found at {}. Reading and parsing.",
+        config_path.display()
+    );
     let content = match fs::read_to_string(&config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[ERROR] Failed to read configuration file content from {}: {}", config_path.display(), e);
+            eprintln!(
+                "[ERROR] Failed to read configuration file content from {}: {}",
+                config_path.display(),
+                e
+            );
             // Clone the PathBuf for the error variant
             return Err(ConfigError::FileReadError {
                 path: config_path.clone(),
@@ -91,14 +104,21 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
         }
     };
 
-    eprintln!("[TRACE] Successfully read configuration file content:\n{}", content);
+    eprintln!("[TRACE] Successfully read configuration file content:\n{content}");
     match toml::from_str::<FileConfig>(&content) {
         Ok(parsed_config) => {
-            eprintln!("[INFO] Successfully parsed configuration file: {}", config_path.display());
+            eprintln!(
+                "[INFO] Successfully parsed configuration file: {}",
+                config_path.display()
+            );
             Ok(Some(parsed_config))
         }
         Err(e) => {
-            eprintln!("[ERROR] Failed to parse TOML configuration from file {}: {}", config_path.display(), e);
+            eprintln!(
+                "[ERROR] Failed to parse TOML configuration from file {}: {}",
+                config_path.display(),
+                e
+            );
             // Clone the PathBuf for the error variant
             Err(ConfigError::FileParseError {
                 path: config_path.clone(),
@@ -202,12 +222,17 @@ impl Config {
         // Load configuration from file
         let file_config = match load_config_file() {
             Ok(fc) => {
-                eprintln!("[TRACE] Configuration file load attempt completed. Loaded: {}", fc.is_some());
+                eprintln!(
+                    "[TRACE] Configuration file load attempt completed. Loaded: {}",
+                    fc.is_some()
+                );
                 fc
             }
             Err(e) => {
                 // Use eprintln! for errors occurring before tracing is set up
-                eprintln!("[ERROR] Failed to load or parse the configuration file: {e}. This is a fatal configuration error.");
+                eprintln!(
+                    "[ERROR] Failed to load or parse the configuration file: {e}. This is a fatal configuration error."
+                );
                 return Err(e);
             }
         };
@@ -375,8 +400,7 @@ mod tests {
         for path in expected_search_paths {
             assert!(
                 config.search_paths.contains(&path),
-                "Missing path: {:?}",
-                path
+                "Missing path: {path:?}"
             );
         }
 
@@ -410,8 +434,7 @@ mod tests {
         for path in expected_search_paths {
             assert!(
                 config.search_paths.contains(&path),
-                "Missing search path: {:?}",
-                path
+                "Missing search path: {path:?}"
             );
         }
 
@@ -481,7 +504,7 @@ mod tests {
             ConfigError::InvalidRegex { pattern, .. } => {
                 assert_eq!(pattern, "[invalidRegex");
             }
-            other_error => panic!("Expected InvalidRegex error, got {:?}", other_error),
+            other_error => panic!("Expected InvalidRegex error, got {other_error:?}"),
         }
     }
 
@@ -508,8 +531,7 @@ mod tests {
         for path in expected_search_paths {
             assert!(
                 config.search_paths.contains(&path),
-                "Missing default search path: {:?}",
-                path
+                "Missing default search path: {path:?}"
             );
         }
         assert!(config.additional_paths.is_empty()); // Default
@@ -547,7 +569,7 @@ mod tests {
                 let mut file =
                     File::create(&config_path).expect("Failed to create temp config file");
                 if let Some(content) = file_content {
-                    write!(file, "{}", content).expect("Failed to write to temp config file");
+                    write!(file, "{content}").expect("Failed to write to temp config file");
                 }
             }
         }
@@ -682,7 +704,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
         assert!(result.is_err());
         match result.err().unwrap() {
             ConfigError::FileParseError { .. } => {} // Expected error
-            other => panic!("Expected FileParseError, got {:?}", other),
+            other => panic!("Expected FileParseError, got {other:?}"),
         }
     }
 
@@ -704,10 +726,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
         );
         match result.err().unwrap() {
             ConfigError::FileParseError { .. } => {} // Expected error due to deny_unknown_fields
-            other => panic!(
-                "Expected FileParseError (due to unknown field), got {:?}",
-                other
-            ),
+            other => panic!("Expected FileParseError (due to unknown field), got {other:?}"),
         }
     }
 
@@ -752,7 +771,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             ConfigError::InvalidPath(PathValidationError::DoesNotExist { path }) => {
                 assert_eq!(path, non_existent_path);
             }
-            other => panic!("Expected DoesNotExist error, got {:?}", other),
+            other => panic!("Expected DoesNotExist error, got {other:?}"),
         }
     }
 
@@ -779,7 +798,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             ConfigError::InvalidPath(PathValidationError::NotADirectory { path }) => {
                 assert_eq!(path, file_path);
             }
-            other => panic!("Expected NotADirectory error, got {:?}", other),
+            other => panic!("Expected NotADirectory error, got {other:?}"),
         }
     }
 
@@ -804,10 +823,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             ConfigError::InvalidPath(PathValidationError::DoesNotExist { path }) => {
                 assert_eq!(path, non_existent_path); // Error should be for the invalid path
             }
-            other => panic!(
-                "Expected DoesNotExist error for the second path, got {:?}",
-                other
-            ),
+            other => panic!("Expected DoesNotExist error for the second path, got {other:?}"),
         }
     }
 }

@@ -7,10 +7,10 @@ use crate::config::Config;
 use crate::error::{AppError, Result};
 use cross_xdg::BaseDirs;
 use std::fs;
-use tracing::{debug, info, Level}; // Removed 'error'
+use tracing::{Level, debug, info}; // Removed 'error'
 use tracing_appender::non_blocking::WorkerGuard; // Import NonBlocking, removed NonBlocking
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 const APP_NAME: &str = "tmux-sessionizer"; // Define app name for directory/file naming
 
@@ -53,7 +53,7 @@ pub struct LoggerGuard {
 pub fn init(config: &Config) -> Result<LoggerGuard> {
     // 1. Determine the XDG data directory
     let base_dirs = BaseDirs::new()
-        .map_err(|e| AppError::LoggingConfig(format!("Failed to get XDG base dirs: {}", e)))?;
+        .map_err(|e| AppError::LoggingConfig(format!("Failed to get XDG base dirs: {e}")))?;
     let data_home = base_dirs.data_home();
 
     // 2. Define the application-specific log directory path
@@ -100,8 +100,8 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
 
     // 7. Set up the EnvFilter
     // Use RUST_LOG if set, otherwise use the default level determined by debug_mode.
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(default_filter));
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
     // 8. Configure the tracing subscriber
     // Combine the file writer layer with the environment filter.
