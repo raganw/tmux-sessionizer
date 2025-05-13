@@ -245,6 +245,104 @@ fn process_directory(path: &str) {
 }
 ```
 
+### Basic Example with Rolling File Appender
+
+```rust
+use tracing::{info, Level};
+use tracing_subscriber::{fmt, prelude::*};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+
+fn main() {
+    // Create a rolling file appender that rotates daily
+    let file_appender = RollingFileAppender::new(
+        Rotation::DAILY,         // Rotate logs daily
+        "logs",                  // Directory to store logs
+        "my_app.log"             // Prefix for log files
+    );
+
+    // Create non-blocking writer
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Create and register subscriber with file writer
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking)
+        .with_ansi(false)        // Disable ANSI colors in file
+        .with_max_level(Level::INFO)
+        .init();
+
+    // Your application code
+    info!("Application started");
+
+    // The _guard should be dropped when your application exits
+    // Keep it in scope for the lifetime of your program
+}
+```
+
+### More Advanced Configuration
+
+For more control and flexibility, here's a more complete example with filtering, custom formatting, and using the builder pattern for the rolling file appender:
+
+```rust
+use tracing::{info, Level};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+
+fn main() {
+    // Create a rolling file appender with more configuration options
+    let file_appender = RollingFileAppender::builder()
+        .rotation(Rotation::DAILY)
+        .filename_prefix("my_app")
+        .filename_suffix("log")
+        .build("logs")
+        .expect("Failed to create rolling file appender");
+
+    // Create non-blocking writer
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Create an environment filter
+    // You can control logging levels via the RUST_LOG environment variable
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+
+    // Create and register a subscriber with the file writer and filter
+    tracing_subscriber::registry()
+        .with(fmt::layer()
+            .with_writer(non_blocking)
+            .with_ansi(false)
+            .with_file(true)
+            .with_line_number(true))
+        .with(filter)
+        .init();
+
+    // Your application code
+    info!("Application started");
+}
+```
+
+### Available Rotation Options
+
+The `tracing-appender` crate provides several rotation options:
+
+- `Rotation::MINUTELY` - Rotate logs every minute
+- `Rotation::HOURLY` - Rotate logs every hour
+- `Rotation::DAILY` - Rotate logs every day
+- `Rotation::NEVER` - Never rotate logs (use with caution; files will grow indefinitely)
+
+### Size-Based Rotation Limitations
+
+Currently, `tracing-appender` only supports time-based rotation out of the box. If you need size-based rotation (e.g., rotate when logs reach a certain size), you would need to either:
+
+1. Use a different crate alongside `tracing-subscriber` that implements size-based rotation
+2. Implement a custom writer that wraps a size-based log rotation library
+
+There is an open feature request for size-based rotation in the `tracing-appender` crate, but it hasn't been implemented yet.
+
+### Additional Considerations
+
+- The `_guard` variable is important - it needs to stay in scope for the duration of your program to ensure logs are properly flushed.
+- For multi-threaded applications, using the non-blocking writer is essential for performance.
+- Consider adding an appropriate `EnvFilter` to control logging verbosity at runtime.
+
 ## cross-xdg - XDG Base Directory Specification
 
 A cross-platform implementation of the XDG Base Directory Specification, working on Linux, macOS, and Windows.
