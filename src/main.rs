@@ -11,6 +11,7 @@ mod directory_scanner;
 mod error;
 mod fuzzy_finder_interface;
 mod git_repository_handler;
+mod logging; // Ensure logging module is declared
 mod path_utils;
 mod session_manager;
 
@@ -18,7 +19,6 @@ use crate::config::Config;
 use crate::directory_scanner::DirectoryScanner;
 use crate::error::Result;
 use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem};
-use tracing::Level;
 
 /// Sets up the global tracing subscriber.
 ///
@@ -28,15 +28,6 @@ use tracing::Level;
 /// # Arguments
 ///
 /// * `debug_mode` - If `true`, sets the logging level to `DEBUG`, otherwise `INFO`.
-fn setup_tracing(debug_mode: bool) {
-    let level = if debug_mode {
-        Level::DEBUG
-    } else {
-        Level::INFO
-    };
-    tracing_subscriber::fmt().with_max_level(level).init();
-}
-
 /// The main entry point of the application.
 ///
 /// Orchestrates the entire process:
@@ -56,8 +47,8 @@ fn main() -> Result<()> {
     // and returns a Result.
     let config = Config::new()?; // Propagate potential ConfigError
 
-    // Setup tracing based on the debug_mode from config
-    setup_tracing(config.debug_mode);
+    // Initialize logging using the new logging module. The guard must stay in scope.
+    let _logger_guard = logging::init(&config)?;
 
     tracing::info!("Application started");
 
