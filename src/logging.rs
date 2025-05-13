@@ -105,7 +105,8 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
 
     // 8. Configure the tracing subscriber
     // Combine the file writer layer with the environment filter.
-    tracing_subscriber::registry()
+    // Use try_init() to avoid panicking if a global subscriber is already set (common in tests).
+    let init_result = tracing_subscriber::registry()
         .with(
             fmt::layer()
                 .with_writer(non_blocking_writer) // Write to the non-blocking file appender
@@ -114,11 +115,19 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
                 .with_line_number(true), // Include source line number info
         )
         .with(filter) // Apply the filter
-        .init(); // Set this subscriber as the global default
+        .try_init(); // Set this subscriber as the global default, handle error if already set
 
-    // Log initialization success (this will now go to the file)
+    if let Err(e) = init_result {
+        // Log a warning if initialization failed, likely because a subscriber already exists.
+        // This is often acceptable in test scenarios or if init is called multiple times.
+        eprintln!("WARN: Failed to set global default tracing subscriber: {}. Logging might not be fully configured.", e);
+        // Optionally, use tracing::warn! here, but it might not work if the subscriber failed completely.
+        // tracing::warn!("Failed to set global default tracing subscriber: {}. Logging might not be fully configured.", e);
+    }
+
+    // Log initialization success (this will now go to the file if init succeeded)
     info!(
-        "Logging initialized. Log level determined by RUST_LOG or debug_mode (default: {}). Log dir: {}",
+        "Logging initialized (or attempted). Log level determined by RUST_LOG or debug_mode (default: {}). Log dir: {}",
         default_level,
         log_dir.display()
     );
