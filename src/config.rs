@@ -63,9 +63,10 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
             return Err(ConfigError::CannotDetermineConfigDir);
         }
     };
-    let config_home = base_dirs.config_home(); // This is the ~/.config or equivalent path
+    // Convert the &Path from config_home() into an owned PathBuf
+    let mut config_path: PathBuf = base_dirs.config_home().to_path_buf();
 
-    let mut config_path = config_home;
+    // Now we can push onto the PathBuf
     config_path.push("tmux-sessionizer"); // Application-specific subdirectory
     config_path.push("tmux-sessionizer.toml"); // The config file itself
 
@@ -82,8 +83,9 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[ERROR] Failed to read configuration file content from {}: {}", config_path.display(), e);
+            // Clone the PathBuf for the error variant
             return Err(ConfigError::FileReadError {
-                path: config_path,
+                path: config_path.clone(),
                 source: e,
             });
         }
@@ -97,8 +99,9 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
         }
         Err(e) => {
             eprintln!("[ERROR] Failed to parse TOML configuration from file {}: {}", config_path.display(), e);
+            // Clone the PathBuf for the error variant
             Err(ConfigError::FileParseError {
-                path: config_path,
+                path: config_path.clone(),
                 source: e,
             })
         }
