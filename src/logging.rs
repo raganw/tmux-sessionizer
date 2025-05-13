@@ -148,6 +148,8 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
+    use std::thread;
+    use std::time::Duration;
 
     // Helper to create a basic Config for testing purposes.
     // Adjust fields based on the actual definition of Config.
@@ -237,6 +239,7 @@ mod tests {
 
         // Drop the guard to ensure logs are flushed
         drop(guard);
+        thread::sleep(Duration::from_millis(100)); // Allow time for flush
 
         // Restore environment variable
         match original_xdg_data_home {
@@ -284,6 +287,7 @@ mod tests {
         // We can indirectly test by checking if DEBUG level logs are emitted.
         tracing::debug!("This debug message should be logged in debug mode.");
         drop(_guard_debug); // Flush logs
+        thread::sleep(Duration::from_millis(100)); // Allow time for flush
 
         let log_file_debug = get_expected_log_dir(&temp_data_home_debug).join(format!("{}.log", APP_NAME));
         let content_debug = fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
@@ -302,6 +306,7 @@ mod tests {
         tracing::debug!("This debug message should NOT be logged in info mode.");
         tracing::info!("This info message should be logged in info mode.");
         drop(_guard_info); // Flush logs
+        thread::sleep(Duration::from_millis(100)); // Allow time for flush
 
         let log_file_info = get_expected_log_dir(&temp_data_home_info).join(format!("{}.log", APP_NAME));
         let content_info = fs::read_to_string(&log_file_info).expect("Failed to read info log file");
