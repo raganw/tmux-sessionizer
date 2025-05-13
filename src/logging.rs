@@ -8,8 +8,8 @@ use crate::error::{AppError, Result};
 use cross_xdg::BaseDirs;
 use std::fs;
 use std::path::PathBuf;
-use tracing::{debug, error, info, Level};
-use tracing_appender::non_blocking::{NonBlocking, WorkerGuard}; // Import NonBlocking
+use tracing::{debug, info, Level}; // Removed 'error'
+use tracing_appender::non_blocking::WorkerGuard; // Import NonBlocking, removed NonBlocking
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
