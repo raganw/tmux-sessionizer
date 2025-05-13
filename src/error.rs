@@ -69,6 +69,10 @@ pub enum AppError {
     #[error("Git operation error: {0}")]
     Git(#[from] git2::Error),
 
+    /// Errors related to logging setup.
+    #[error("Logging configuration error: {0}")]
+    LoggingConfig(String),
+
     /// General internal errors, often used for unexpected conditions or wrapping errors
     /// from libraries without specific variants (via `anyhow`).
     #[error("Internal error: {0}")]
