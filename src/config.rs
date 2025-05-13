@@ -6,6 +6,7 @@
 use crate::error::{ConfigError, PathValidationError};
 use crate::path_utils::expand_tilde; // For expanding tilde in paths
 use clap::Parser;
+use cross_xdg::BaseDirs; // Import BaseDirs
 use regex::Regex;
 use serde_derive::Deserialize;
 use std::fs;
@@ -52,13 +53,19 @@ fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathVal
 /// Returns `Ok(None)` if the config directory is not found or the file does not exist.
 /// Returns `Err(ConfigError)` for IO errors during reading or parsing errors.
 fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
-    let Some(config_dir) = dirs::config_dir() else {
-        // Use eprintln! because tracing might not be set up yet
-        eprintln!("[ERROR] Could not determine the user's config directory.");
-        return Err(ConfigError::CannotDetermineConfigDir);
+    // Use cross_xdg to find the config directory
+    let base_dirs = match BaseDirs::new() {
+        Ok(bd) => bd,
+        Err(e) => {
+            // Use eprintln! because tracing might not be set up yet
+            eprintln!("[ERROR] Could not determine XDG base directories: {}", e);
+            // Re-use the existing error variant, the log provides the detail.
+            return Err(ConfigError::CannotDetermineConfigDir);
+        }
     };
+    let config_home = base_dirs.config_home(); // This is the ~/.config or equivalent path
 
-    let mut config_path = config_dir;
+    let mut config_path = config_home;
     config_path.push("tmux-sessionizer"); // Application-specific subdirectory
     config_path.push("tmux-sessionizer.toml"); // The config file itself
 
