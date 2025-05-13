@@ -3,12 +3,15 @@
 //! Handles the setup and configuration of application-wide logging using the `tracing` ecosystem.
 //! Configures logging to a rotating file located in the appropriate XDG data directory.
 
+// Add imports for DefaultGuard and manual Debug implementation
+use std::fmt as std_fmt;
+use tracing::subscriber::DefaultGuard as TracingDefaultGuard;
 use crate::config::Config;
 use crate::error::{AppError, Result};
 use cross_xdg::BaseDirs;
 use std::fs;
-use tracing::{Level, debug, info}; // Removed 'error'
-use tracing_appender::non_blocking::WorkerGuard; // Import NonBlocking, removed NonBlocking
+use tracing::{debug, info, Level}; // Added Level back
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
@@ -18,9 +21,20 @@ const APP_NAME: &str = "tmux-sessionizer"; // Define app name for directory/file
 ///
 /// The `WorkerGuard` must be kept alive for the duration of the application
 /// to ensure logs are flushed.
-#[derive(Debug)]
+// Modify LoggerGuard struct and implement Debug manually
+// #[derive(Debug)] // Remove this
 pub struct LoggerGuard {
-    _guard: WorkerGuard,
+    _worker_guard: WorkerGuard,
+    _subscriber_guard: TracingDefaultGuard, // Renamed for clarity
+}
+
+impl std_fmt::Debug for LoggerGuard {
+    fn fmt(&self, f: &mut std_fmt::Formatter<'_>) -> std_fmt::Result {
+        f.debug_struct("LoggerGuard")
+            .field("_worker_guard", &"WorkerGuard { ... }") // Avoid printing internals
+            .field("_subscriber_guard", &"TracingDefaultGuard { ... }") // Avoid printing internals
+            .finish()
+    }
 }
 
 /// Initializes the logging system.
@@ -48,6 +62,7 @@ pub struct LoggerGuard {
 /// # Returns
 ///
 /// * `Result<LoggerGuard>` - Returns a guard that must be kept alive for logging to work.
+///   When this guard is dropped, the previously active tracing subscriber is restored.
 ///   Returns an `AppError::LoggingConfig` if setup fails
 ///   (e.g., directory creation, file appender initialization).
 pub fn init(config: &Config) -> Result<LoggerGuard> {
@@ -84,11 +99,7 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
         })?;
 
     // 5. Create a non-blocking writer for performance.
-    // The guard must be kept alive to ensure logs are flushed.
-    let (non_blocking_writer, guard) = tracing_appender::non_blocking(file_appender);
-
-    // Store the guard in the struct to be returned.
-    let logger_guard = LoggerGuard { _guard: guard };
+    let (non_blocking_writer, worker_guard) = tracing_appender::non_blocking(file_appender);
 
     // 6. Determine the default log level based on config
     let default_level = if config.debug_mode {
@@ -99,14 +110,11 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
     let default_filter = format!("{APP_NAME}={default_level}"); // e.g., "tmux_sessionizer=debug"
 
     // 7. Set up the EnvFilter
-    // Use RUST_LOG if set, otherwise use the default level determined by debug_mode.
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
 
-    // 8. Configure the tracing subscriber
-    // Combine the file writer layer with the environment filter.
-    // Use try_init() to avoid panicking if a global subscriber is already set (common in tests).
-    let init_result = tracing_subscriber::registry()
+    // 8. Configure the tracing subscriber layers
+    let subscriber = tracing_subscriber::registry()
         .with(
             fmt::layer()
                 .with_writer(non_blocking_writer) // Write to the non-blocking file appender
@@ -114,25 +122,23 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
                 .with_file(true) // Include source file info
                 .with_line_number(true), // Include source line number info
         )
-        .with(filter) // Apply the filter
-        .try_init(); // Set this subscriber as the global default, handle error if already set
+        .with(filter); // Apply the filter
 
-    if let Err(e) = init_result {
-        // Log a warning if initialization failed, likely because a subscriber already exists.
-        // This is often acceptable in test scenarios or if init is called multiple times.
-        eprintln!(
-            "WARN: Failed to set global default tracing subscriber: {}. Logging might not be fully configured.",
-            e
-        );
-        // Optionally, use tracing::warn! here, but it might not work if the subscriber failed completely.
-        // tracing::warn!("Failed to set global default tracing subscriber: {}. Logging might not be fully configured.", e);
-    }
+    // Set this subscriber as the global default.
+    // The returned TracingDefaultGuard will unset it when dropped.
+    let subscriber_guard = tracing::subscriber::set_default(subscriber);
 
-    // Log initialization success (this will now go to the file if init succeeded)
+    // The LoggerGuard now holds both guards.
+    let logger_guard = LoggerGuard {
+        _worker_guard: worker_guard,
+        _subscriber_guard: subscriber_guard,
+    };
+
+    // Log initialization success (this will now go to the file via the new subscriber)
     info!(
-        "Logging initialized (or attempted). Log level determined by RUST_LOG or debug_mode (default: {}). Log dir: {}",
-        default_level,
-        log_dir.display()
+        "Logging initialized. Log level determined by RUST_LOG or debug_mode (default: {}). Log dir: {}",
+        default_level, // Use the variable determined earlier
+        log_dir.display() // Use the variable determined earlier
     );
     if config.debug_mode {
         debug!("Debug mode enabled via configuration.");
