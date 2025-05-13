@@ -58,7 +58,7 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
         Ok(bd) => bd,
         Err(e) => {
             // Use eprintln! because tracing might not be set up yet
-            eprintln!("[ERROR] Could not determine XDG base directories: {}", e);
+            eprintln!("[ERROR] Could not determine XDG base directories: {e}");
             // Re-use the existing error variant, the log provides the detail.
             return Err(ConfigError::CannotDetermineConfigDir);
         }
@@ -197,7 +197,7 @@ impl Config {
         // Use eprintln! here because tracing is not yet initialized
         eprintln!("[TRACE] Setting up configuration");
         let cli_args = CliArgs::parse();
-        eprintln!("[DEBUG] Parsed command line arguments: {:?}", cli_args);
+        eprintln!("[DEBUG] Parsed command line arguments: {cli_args:?}");
 
         // Load configuration from file
         let file_config = match load_config_file() {
@@ -207,13 +207,13 @@ impl Config {
             }
             Err(e) => {
                 // Use eprintln! for errors occurring before tracing is set up
-                eprintln!("[ERROR] Failed to load or parse the configuration file: {}. This is a fatal configuration error.", e);
+                eprintln!("[ERROR] Failed to load or parse the configuration file: {e}. This is a fatal configuration error.");
                 return Err(e);
             }
         };
 
         let config = Self::build(file_config, cli_args)?;
-        eprintln!("[DEBUG] Constructed final configuration: {:?}", config);
+        eprintln!("[DEBUG] Constructed final configuration: {config:?}");
 
         // Validate paths after merging and expansion
         config.validate()?; // Validation logs internally using tracing, but that's okay if it happens after setup

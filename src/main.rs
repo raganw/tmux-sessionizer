@@ -27,7 +27,8 @@ use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem};
 ///
 /// # Arguments
 ///
-/// * `debug_mode` - If `true`, sets the logging level to `DEBUG`, otherwise `INFO`.
+/// * `debug_mode` - If `true`, sets the logging level to `DEBUG`, otherwise `INFO`.///
+///
 /// The main entry point of the application.
 ///
 /// Orchestrates the entire process:

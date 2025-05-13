@@ -48,8 +48,8 @@ pub struct LoggerGuard {
 /// # Returns
 ///
 /// * `Result<LoggerGuard>` - Returns a guard that must be kept alive for logging to work.
-///                           Returns an `AppError::LoggingConfig` if setup fails
-///                           (e.g., directory creation, file appender initialization).
+///   Returns an `AppError::LoggingConfig` if setup fails
+///   (e.g., directory creation, file appender initialization).
 pub fn init(config: &Config) -> Result<LoggerGuard> {
     // 1. Determine the XDG data directory
     let base_dirs = BaseDirs::new()
@@ -96,7 +96,7 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
     } else {
         Level::INFO
     };
-    let default_filter = format!("{}={}", APP_NAME, default_level); // e.g., "tmux_sessionizer=debug"
+    let default_filter = format!("{APP_NAME}={default_level}"); // e.g., "tmux_sessionizer=debug"
 
     // 7. Set up the EnvFilter
     // Use RUST_LOG if set, otherwise use the default level determined by debug_mode.
