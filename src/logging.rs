@@ -139,7 +139,6 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use tempfile::tempdir;
-    use tracing::level_filters::LevelFilter; // For checking filter levels
 
     // Helper to create a basic Config for testing purposes.
     // Adjust fields based on the actual definition of Config.
@@ -153,10 +152,6 @@ mod tests {
             // Add other necessary fields from the actual Config struct if they exist
             // and are required for initialization or logging logic.
             // For example, if config file loading affects defaults:
-            config_file_path: None,
-            search_paths_from_config: vec![],
-            additional_paths_from_config: vec![],
-            exclude_patterns_from_config: vec![],
         }
     }
 
@@ -173,7 +168,7 @@ mod tests {
         let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
 
         // Set XDG_DATA_HOME for this test
-        env::set_var("XDG_DATA_HOME", &temp_data_home);
+        unsafe { env::set_var("XDG_DATA_HOME", &temp_data_home); }
 
         let expected_log_dir = get_expected_log_dir(&temp_data_home);
 
@@ -188,8 +183,8 @@ mod tests {
 
         // Restore original environment variable
         match original_xdg_data_home {
-            Some(val) => env::set_var("XDG_DATA_HOME", val),
-            None => env::remove_var("XDG_DATA_HOME"),
+            Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
+            None => unsafe { env::remove_var("XDG_DATA_HOME") },
         }
 
         // Assert that the log directory was created by init
@@ -213,7 +208,7 @@ mod tests {
         let temp_dir = tempdir().expect("Failed to create temp dir for log file test");
         let temp_data_home = temp_dir.path().to_path_buf();
         let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
-        env::set_var("XDG_DATA_HOME", &temp_data_home);
+        unsafe { env::set_var("XDG_DATA_HOME", &temp_data_home); }
 
         let config = create_test_config(false); // Use info level
         let expected_log_dir = get_expected_log_dir(&temp_data_home);
@@ -236,8 +231,8 @@ mod tests {
 
         // Restore environment variable
         match original_xdg_data_home {
-            Some(val) => env::set_var("XDG_DATA_HOME", val),
-            None => env::remove_var("XDG_DATA_HOME"),
+            Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
+            None => unsafe { env::remove_var("XDG_DATA_HOME") },
         }
 
         // Assertions
@@ -266,11 +261,11 @@ mod tests {
     #[serial] // Modifies environment variables and global tracing state
     fn test_debug_mode_level_setting() {
         // Test with debug_mode = true
-        env::remove_var("RUST_LOG"); // Ensure RUST_LOG is not set to interfere
+        unsafe { env::remove_var("RUST_LOG"); } // Ensure RUST_LOG is not set to interfere
         let temp_dir_debug = tempdir().expect("Failed temp dir for debug test");
         let temp_data_home_debug = temp_dir_debug.path().to_path_buf();
         let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
-        env::set_var("XDG_DATA_HOME", &temp_data_home_debug);
+        unsafe { env::set_var("XDG_DATA_HOME", &temp_data_home_debug); }
 
         let debug_config = create_test_config(true);
         let _guard_debug = init(&debug_config).expect("Logger init failed for debug test");
@@ -288,10 +283,10 @@ mod tests {
 
 
         // Test with debug_mode = false
-        env::remove_var("RUST_LOG"); // Ensure RUST_LOG is not set
+        unsafe { env::remove_var("RUST_LOG"); } // Ensure RUST_LOG is not set
         let temp_dir_info = tempdir().expect("Failed temp dir for info test");
         let temp_data_home_info = temp_dir_info.path().to_path_buf();
-        env::set_var("XDG_DATA_HOME", &temp_data_home_info); // Set again for this part
+        unsafe { env::set_var("XDG_DATA_HOME", &temp_data_home_info); } // Set again for this part
 
         let info_config = create_test_config(false);
         let _guard_info = init(&info_config).expect("Logger init failed for info test");
@@ -308,8 +303,8 @@ mod tests {
 
         // Restore original environment variable
         match original_xdg_data_home {
-            Some(val) => env::set_var("XDG_DATA_HOME", val),
-            None => env::remove_var("XDG_DATA_HOME"),
+            Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
+            None => unsafe { env::remove_var("XDG_DATA_HOME") },
         }
 
         // Clean up
