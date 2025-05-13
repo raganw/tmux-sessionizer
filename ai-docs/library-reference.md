@@ -245,3 +245,89 @@ fn process_directory(path: &str) {
 }
 ```
 
+## cross-xdg - XDG Base Directory Specification
+
+A cross-platform implementation of the XDG Base Directory Specification, working on Linux, macOS, and Windows.
+
+### Key Features
+
+- Consistent access to XDG directories across all platforms
+- Implements the standard XDG environment variables on Linux
+- Maps to appropriate locations on macOS and Windows
+- Respects environment variable overrides
+- Simple API for accessing common directories
+
+### Basic Usage
+
+```rust
+use cross_xdg::BaseDirs;
+use std::path::PathBuf;
+
+fn get_config_path(filename: &str) -> PathBuf {
+    // Create a new BaseDirs instance which provides access to XDG directories
+    let base_dirs = BaseDirs::new().expect("Failed to determine XDG directories");
+
+    // Get the config directory (e.g., ~/.config on Linux)
+    let config_home = base_dirs.config_home();
+
+    // Create path for a specific configuration file
+    config_home.join(filename)
+}
+
+fn get_data_path(app_name: &str, filename: &str) -> PathBuf {
+    let base_dirs = BaseDirs::new().expect("Failed to determine XDG directories");
+
+    // Get the data directory (e.g., ~/.local/share on Linux)
+    let data_home = base_dirs.data_home();
+
+    // Create application-specific subdirectory
+    data_home.join(app_name).join(filename)
+}
+```
+
+## Extras
+
+### rayon - Parallel Processing (Optional Enhancement)
+
+```rust
+use rayon::prelude::*;
+use walkdir::WalkDir;
+use std::path::Path;
+
+fn scan_directories_parallel(paths: &[Path]) -> Vec<PathBuf> {
+    paths.par_iter()
+        .flat_map(|path| {
+            WalkDir::new(path)
+                .max_depth(1)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .map(|e| e.path().to_path_buf())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+```
+
+### thiserror - Error Handling
+
+```rust
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum TmuxSessionizerError {
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Git error: {0}")]
+    GitError(#[from] git2::Error),
+
+    #[error("Tmux error: {0}")]
+    TmuxError(String),
+
+    #[error("Session not found: {0}")]
+    SessionNotFound(String),
+
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
+}
+```
