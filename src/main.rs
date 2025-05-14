@@ -44,13 +44,16 @@ use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem};
 /// * `Result<()>` - Returns `Ok(())` on successful execution, or an `AppError` if any step fails.
 fn main() -> Result<()> {
     // 1. Parse command-line arguments, load config file, and create a Config instance
-    // Config::new() now handles merging CLI args, config file, and defaults,
-    // and returns a Result.
-    let config = Config::new()?; // Propagate potential ConfigError
+    // 1. Parse command-line arguments, load config file, and create a Config instance
+    let config = Config::new()?;
 
-    // Initialize logging using the new logging module. The guard must stay in scope.
-    let _logger_guard = logging::init(&config)?;
+    // Initialize global logging. The guard must stay in scope.
+    // The logging module now handles XDG directory determination internally.
+    let log_level_str = if config.debug_mode { "debug" } else { "info" };
+    let _logger_guard = logging::init_global_tracing(log_level_str)?;
+    // _logger_guard is now of type WorkerGuard
 
+    // This first log message will go to the file via the global subscriber
     tracing::info!("Application started");
 
     // Log the loaded configuration if debug mode is enabled

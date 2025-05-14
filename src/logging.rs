@@ -4,96 +4,91 @@
 //! Configures logging to a rotating file located in the appropriate XDG data directory.
 
 // Add imports for DefaultGuard and manual Debug implementation
-use std::fmt as std_fmt;
+// Remove std_fmt import as LoggerGuard is removed
 use tracing::subscriber::DefaultGuard as TracingDefaultGuard;
-use crate::config::Config;
+use crate::config::Config; // Keep for now if tests use it, but init functions won't
 use crate::error::{AppError, Result};
 use cross_xdg::BaseDirs;
 use std::fs;
-use tracing::{debug, info, Level}; // Added Level back
+use std::path::{Path, PathBuf}; // Added Path, PathBuf
+use std::str::FromStr; // Added FromStr for Level parsing
+use tracing::{debug, info, Level, Subscriber}; // Added Level, Subscriber
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-const APP_NAME: &str = "tmux-sessionizer"; // Define app name for directory/file naming
+pub const APP_NAME: &str = "tmux-sessionizer"; // Define app name for directory/file naming, ensure it's pub
 
-/// Represents the logging configuration and holds the guard for the non-blocking writer.
-///
-/// The `WorkerGuard` must be kept alive for the duration of the application
-/// to ensure logs are flushed.
-// Modify LoggerGuard struct and implement Debug manually
-// #[derive(Debug)] // Remove this
-pub struct LoggerGuard {
-    _worker_guard: WorkerGuard,
-    _subscriber_guard: TracingDefaultGuard, // Renamed for clarity
-}
+// Remove LoggerGuard struct and its Debug implementation
+// /// Represents the logging configuration and holds the guard for the non-blocking writer.
+// ///
+// /// The `WorkerGuard` must be kept alive for the duration of the application
+// /// to ensure logs are flushed.
+// // Modify LoggerGuard struct and implement Debug manually
+// // #[derive(Debug)] // Remove this
+// pub struct LoggerGuard {
+//     _worker_guard: WorkerGuard,
+//     _subscriber_guard: TracingDefaultGuard, // Renamed for clarity
+// }
+//
+// impl std_fmt::Debug for LoggerGuard {
+//     fn fmt(&self, f: &mut std_fmt::Formatter<'_>) -> std_fmt::Result {
+//         f.debug_struct("LoggerGuard")
+//             .field("_worker_guard", &"WorkerGuard { ... }") // Avoid printing internals
+//             .field("_subscriber_guard", &"TracingDefaultGuard { ... }") // Avoid printing internals
+//             .finish()
+//     }
+// }
 
-impl std_fmt::Debug for LoggerGuard {
-    fn fmt(&self, f: &mut std_fmt::Formatter<'_>) -> std_fmt::Result {
-        f.debug_struct("LoggerGuard")
-            .field("_worker_guard", &"WorkerGuard { ... }") // Avoid printing internals
-            .field("_subscriber_guard", &"TracingDefaultGuard { ... }") // Avoid printing internals
-            .finish()
-    }
-}
+// Remove the old init function
+// pub fn init(config: &Config) -> Result<LoggerGuard> { ... }
 
-/// Initializes the logging system.
+
+/// Initializes a file-based tracing subscriber.
 ///
-/// This function sets up the global tracing subscriber to write logs to a
-/// rotating file in the XDG data directory. It configures daily rotation.
-/// Note: `tracing-appender` handles rotation based on time intervals (daily),
-/// but does not automatically limit the *number* of old log files kept.
-/// Manual cleanup might be needed for strict file count limits.
-///
-/// This function sets up the global tracing subscriber to write logs to a
-/// rotating file in the XDG data directory. It configures daily rotation.
-/// The log level is set to `DEBUG` if `config.debug_mode` is true, otherwise `INFO`.
-/// The level can be overridden using the `RUST_LOG` environment variable
-/// (e.g., `RUST_LOG=tmux_sessionizer=trace`).
-///
-/// Note: `tracing-appender` handles rotation based on time intervals (daily),
-/// but does not automatically limit the *number* of old log files kept.
-/// Manual cleanup might be needed for strict file count limits.
+/// This private helper function sets up a rolling file appender in the XDG data directory
+/// under an application-specific subdirectory. It configures daily rotation.
 ///
 /// # Arguments
 ///
-/// * `config` - The application configuration, used to determine the default log level.
+/// * `default_level` - The default `tracing::Level` to use if `RUST_LOG` is not set.
 ///
 /// # Returns
 ///
-/// * `Result<LoggerGuard>` - Returns a guard that must be kept alive for logging to work.
-///   When this guard is dropped, the previously active tracing subscriber is restored.
-///   Returns an `AppError::LoggingConfig` if setup fails
-///   (e.g., directory creation, file appender initialization).
-pub fn init(config: &Config) -> Result<LoggerGuard> {
+/// * `Result<(WorkerGuard, impl Subscriber + Send + Sync, PathBuf)>` -
+///   Returns the worker guard for the non-blocking appender, the configured subscriber,
+///   and the path to the log directory.
+///   Returns `AppError::LoggingConfig` if setup fails.
+fn init_file_subscriber(
+    default_level: Level,
+) -> Result<(WorkerGuard, impl Subscriber + Send + Sync, PathBuf)> {
     // 1. Determine the XDG data directory
     let base_dirs = BaseDirs::new()
         .map_err(|e| AppError::LoggingConfig(format!("Failed to get XDG base dirs: {e}")))?;
     let data_home = base_dirs.data_home();
 
-    // 2. Define the application-specific log directory path
-    let log_dir = data_home.join(APP_NAME);
+    // 2. Define the application-specific log directory path using the module's APP_NAME
+    let log_dir_path = data_home.join(APP_NAME);
 
     // 3. Create the log directory if it doesn't exist
-    fs::create_dir_all(&log_dir).map_err(|e| {
+    fs::create_dir_all(&log_dir_path).map_err(|e| {
         AppError::LoggingConfig(format!(
             "Failed to create log directory '{}': {}",
-            log_dir.display(),
+            log_dir_path.display(),
             e
         ))
     })?;
 
     // 4. Configure the rolling file appender
-    // Rotate daily and write logs to APP_NAME.log, APP_NAME.log.YYYY-MM-DD, etc.
     let file_appender = RollingFileAppender::builder()
-        .rotation(Rotation::DAILY) // Rotate daily
-        .filename_prefix(APP_NAME) // Log file prefix (e.g., tmux-sessionizer)
-        .filename_suffix("log") // Log file suffix (e.g., .log)
-        .build(&log_dir) // Directory to store log files
+        .rotation(Rotation::DAILY)
+        .filename_prefix(APP_NAME) // Use module's APP_NAME for file prefix
+        .filename_suffix("log")
+        .build(&log_dir_path)
         .map_err(|e| {
             AppError::LoggingConfig(format!(
                 "Failed to initialize rolling file appender in '{}': {}",
-                log_dir.display(),
+                log_dir_path.display(),
                 e
             ))
         })?;
@@ -101,58 +96,83 @@ pub fn init(config: &Config) -> Result<LoggerGuard> {
     // 5. Create a non-blocking writer for performance.
     let (non_blocking_writer, worker_guard) = tracing_appender::non_blocking(file_appender);
 
-    // 6. Determine the default log level based on config
-    let default_level = if config.debug_mode {
-        Level::DEBUG
-    } else {
-        Level::INFO
-    };
-    let default_filter = format!("{APP_NAME}={default_level}"); // e.g., "tmux_sessionizer=debug"
-
-    // 7. Set up the EnvFilter
+    // 6. Set up the EnvFilter using the module's APP_NAME
+    let filter_string = format!("{}={}", APP_NAME, default_level); // e.g., "tmux_sessionizer=debug"
     let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default_filter));
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(filter_string));
 
-    // 8. Configure the tracing subscriber layers
+    // 7. Configure the tracing subscriber layers
     let subscriber = tracing_subscriber::registry()
         .with(
             fmt::layer()
-                .with_writer(non_blocking_writer) // Write to the non-blocking file appender
-                .with_ansi(false) // Disable ANSI colors in log files
-                .with_file(true) // Include source file info
-                .with_line_number(true), // Include source line number info
+                .with_writer(non_blocking_writer)
+                .with_ansi(false)
+                .with_file(true)
+                .with_line_number(true),
         )
-        .with(filter); // Apply the filter
+        .with(filter);
 
-    // Set this subscriber as the global default.
-    // The returned TracingDefaultGuard will unset it when dropped.
+    Ok((worker_guard, subscriber, log_dir_path))
+}
+
+/// Creates a tracing/logging subscriber that is valid until the guards are dropped.
+///
+/// This function sets up logging to a file in the XDG data directory.
+/// The format layer logs spans/events in plain text, without color, one event per line.
+/// This is primarily useful for setting a temporary default subscriber in unit tests.
+///
+/// # Arguments
+///
+/// * `level` - A string slice representing the desired default log level (e.g., "info", "debug").
+///
+/// # Returns
+///
+/// * `Result<(WorkerGuard, TracingDefaultGuard)>` - Returns the worker guard for the
+///   non-blocking file appender and the guard for the default subscriber.
+///   Returns `AppError::LoggingConfig` if setup fails.
+pub fn init_tracing(level: &str) -> Result<(WorkerGuard, TracingDefaultGuard)> {
+    let log_level = Level::from_str(level)
+        .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {}", level)))?;
+
+    let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
     let subscriber_guard = tracing::subscriber::set_default(subscriber);
+    // This log message will go to the newly set default subscriber (i.e., the file)
+    info!("initialized tracing. Log directory: {}", log_dir_path.display());
+    Ok((guard, subscriber_guard))
+}
 
-    // The LoggerGuard now holds both guards.
-    let logger_guard = LoggerGuard {
-        _worker_guard: worker_guard,
-        _subscriber_guard: subscriber_guard,
-    };
+/// Creates and sets a global tracing/logging subscriber.
+///
+/// This function initializes logging to a file in the XDG data directory and sets it
+/// as the global default subscriber for the application.
+///
+/// # Arguments
+///
+/// * `level` - A string slice representing the desired default log level (e.g., "info", "debug").
+///
+/// # Returns
+///
+/// * `Result<WorkerGuard>` - Returns the worker guard for the non-blocking file appender.
+///   This guard must be kept alive for the duration of the application to ensure logs are flushed.
+///   Returns `AppError::LoggingConfig` if setup fails.
+pub fn init_global_tracing(level: &str) -> Result<WorkerGuard> {
+    let log_level = Level::from_str(level)
+        .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {}", level)))?;
 
-    // Log initialization success (this will now go to the file via the new subscriber)
-    info!(
-        "Logging initialized. Log level determined by RUST_LOG or debug_mode (default: {}). Log dir: {}",
-        default_level, // Use the variable determined earlier
-        log_dir.display() // Use the variable determined earlier
-    );
-    if config.debug_mode {
-        debug!("Debug mode enabled via configuration.");
-    }
-
-    // 9. Return the guard
-    Ok(logger_guard)
+    let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|e| AppError::LoggingConfig(format!("Failed to set global default subscriber: {}", e)))?;
+    // This log message will go to the newly set global subscriber (i.e., the file)
+    info!("initialized global tracing. Log directory: {}", log_dir_path.display());
+    Ok(guard)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config; // Make sure Config is accessible
-    use serial_test::serial; // Needed for tests modifying env vars or global state
+    // Remove crate::config::Config import if no longer needed by create_test_config
+    // use crate::config::Config;
+    use serial_test::serial;
     use std::env;
     use std::fs;
     use std::path::PathBuf;
@@ -160,20 +180,9 @@ mod tests {
     use std::time::Duration;
     use tempfile::tempdir;
 
-    // Helper to create a basic Config for testing purposes.
-    // Adjust fields based on the actual definition of Config.
-    fn create_test_config(debug_mode: bool) -> Config {
-        Config {
-            search_paths: vec![],
-            additional_paths: vec![],
-            exclude_patterns: vec![],
-            debug_mode,
-            direct_selection: None,
-            // Add other necessary fields from the actual Config struct if they exist
-            // and are required for initialization or logging logic.
-            // For example, if config file loading affects defaults:
-        }
-    }
+    // Remove create_test_config helper function as it's no longer directly used by init functions
+    // fn create_test_config(debug_mode: bool) -> Config { ... }
+
 
     // Helper function to get the expected log directory path based on a temporary data home.
     fn get_expected_log_dir(temp_data_home: &PathBuf) -> PathBuf {
@@ -200,9 +209,9 @@ mod tests {
                 .expect("Failed to clean up pre-existing test log dir");
         }
 
-        // Call init to trigger directory creation logic
-        let config = create_test_config(false);
-        let _guard = init(&config).expect("Logger initialization failed");
+        // Call init_tracing to trigger directory creation logic
+        let (_worker_guard, _subscriber_guard) =
+            init_tracing("info").expect("Logger initialization failed");
 
         // Restore original environment variable
         match original_xdg_data_home {
@@ -210,10 +219,9 @@ mod tests {
             None => unsafe { env::remove_var("XDG_DATA_HOME") },
         }
 
-        // Assert that the log directory was created by init
         assert!(
             expected_log_dir.exists(),
-            "Log directory '{}' should have been created by init",
+            "Log directory '{}' should have been created",
             expected_log_dir.display()
         );
         assert!(
@@ -253,31 +261,30 @@ mod tests {
                 .expect("Failed to clean up pre-existing test log dir");
         }
 
-        // Initialize logging
-        let guard = init(&config).expect("Logger initialization failed");
+        // Initialize logging using init_tracing
+        let (_worker_guard, subscriber_guard) =
+            init_tracing("info").expect("Logger initialization failed");
 
-        // Log a message to trigger file write
         tracing::info!("Test message for log file creation.");
 
-        // Drop the guard to ensure logs are flushed
-        drop(guard);
-        thread::sleep(Duration::from_millis(100)); // Allow time for flush
+        drop(subscriber_guard); // Drop subscriber guard first
+        // _worker_guard will be dropped here, ensuring flush
+        thread::sleep(Duration::from_millis(200)); // Allow more time for flush
 
-        // Restore environment variable
         match original_xdg_data_home {
             Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
             None => unsafe { env::remove_var("XDG_DATA_HOME") },
         }
 
-        // Assertions
         assert!(
             expected_log_dir.exists(),
             "Log directory should exist after init"
         );
         assert!(
             expected_log_file.exists(),
-            "Log file '{}' should exist after init and logging",
-            expected_log_file.display()
+            "Log file '{}' should exist after init and logging. Content: {:?}",
+            expected_log_file.display(),
+            fs::read_to_string(&expected_log_file).unwrap_or_else(|_| "Error reading file".to_string())
         );
         assert!(
             expected_log_file.is_file(),
@@ -285,12 +292,15 @@ mod tests {
             expected_log_file.display()
         );
 
-        // Check if the file has content
         let metadata = fs::metadata(&expected_log_file).expect("Failed to get log file metadata");
         assert!(
             metadata.len() > 0,
             "Log file should not be empty after logging"
         );
+        let content = fs::read_to_string(&expected_log_file).unwrap();
+        assert!(content.contains("Test message for log file creation."));
+        assert!(content.contains("initialized tracing. Log directory:"));
+
 
         // Clean up
         fs::remove_dir_all(&expected_log_dir).expect("Failed to clean up test log dir");
@@ -310,30 +320,28 @@ mod tests {
             env::set_var("XDG_DATA_HOME", &temp_data_home_debug);
         }
 
-        let debug_config = create_test_config(true);
-        let _guard_debug = init(&debug_config).expect("Logger init failed for debug test");
-        // Check the effective level filter (requires accessing subscriber state, which is complex)
-        // Instead, we verify the *default* filter string logic within init.
-        // The init function logs the default level used if RUST_LOG isn't set.
-        // We can indirectly test by checking if DEBUG level logs are emitted.
+        let (_w_guard_debug, s_guard_debug) =
+            init_tracing("debug").expect("Logger init failed for debug test");
         tracing::debug!("This debug message should be logged in debug mode.");
-        drop(_guard_debug); // Flush logs
-        thread::sleep(Duration::from_millis(100)); // Allow time for flush
+        drop(s_guard_debug);
+        thread::sleep(Duration::from_millis(100));
 
         let log_file_debug =
             get_expected_log_dir(&temp_data_home_debug).join(format!("{}.log", APP_NAME));
         let content_debug =
             fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
         assert!(
-            content_debug.contains("level determined by RUST_LOG or debug_mode (default: DEBUG)"),
-            "Log init message should indicate DEBUG default"
+            content_debug.contains("initialized tracing. Log directory:"),
+            "Log init message should be present"
         );
+        // The filter string itself is "tmux_sessionizer=debug", not part of the log message from init_tracing
+        // We check for the effect:
         assert!(
             content_debug.contains("This debug message should be logged"),
             "Debug message missing in debug mode"
         );
 
-        // Test with debug_mode = false
+        // Test with "info" level
         unsafe {
             env::remove_var("RUST_LOG");
         } // Ensure RUST_LOG is not set
@@ -341,22 +349,22 @@ mod tests {
         let temp_data_home_info = temp_dir_info.path().to_path_buf();
         unsafe {
             env::set_var("XDG_DATA_HOME", &temp_data_home_info);
-        } // Set again for this part
+        }
 
-        let info_config = create_test_config(false);
-        let _guard_info = init(&info_config).expect("Logger init failed for info test");
+        let (_w_guard_info, s_guard_info) =
+            init_tracing("info").expect("Logger init failed for info test");
         tracing::debug!("This debug message should NOT be logged in info mode.");
         tracing::info!("This info message should be logged in info mode.");
-        drop(_guard_info); // Flush logs
-        thread::sleep(Duration::from_millis(100)); // Allow time for flush
+        drop(s_guard_info);
+        thread::sleep(Duration::from_millis(100));
 
         let log_file_info =
             get_expected_log_dir(&temp_data_home_info).join(format!("{}.log", APP_NAME));
         let content_info =
             fs::read_to_string(&log_file_info).expect("Failed to read info log file");
         assert!(
-            content_info.contains("level determined by RUST_LOG or debug_mode (default: INFO)"),
-            "Log init message should indicate INFO default"
+            content_info.contains("initialized tracing. Log directory:"),
+            "Log init message should be present"
         );
         assert!(
             content_info.contains("This info message should be logged"),
@@ -367,7 +375,7 @@ mod tests {
             "Debug message unexpectedly present in info mode"
         );
 
-        // Restore original environment variable
+        match original_xdg_data_home {
         match original_xdg_data_home {
             Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
             None => unsafe { env::remove_var("XDG_DATA_HOME") },
