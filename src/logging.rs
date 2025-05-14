@@ -376,7 +376,6 @@ mod tests {
         );
 
         match original_xdg_data_home {
-        match original_xdg_data_home {
             Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
             None => unsafe { env::remove_var("XDG_DATA_HOME") },
         }
