@@ -14,7 +14,6 @@ regex = "1.11.1"
 serde = "1.0.219"
 serde_derive = "1.0.219"
 skim = "0.17.2"
-tempfile = "3.19.1"
 thiserror = "2.0.12"
 tmux_interface = "0.3.2"
 toml = "0.8.22"
@@ -22,3 +21,7 @@ tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter", "registry"] }
 walkdir = "2.5.0"
+
+[dev-dependencies]
+serial_test = "3.2.0"
+tempfile = "3.19.1"
