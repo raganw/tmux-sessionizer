@@ -11,7 +11,6 @@ use std::str::FromStr;
 use tracing::{Level, Subscriber, info};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 const APP_NAME: &str = "tmux-sessionizer";
 
@@ -95,11 +94,11 @@ fn init_file_subscriber(
 ///   Returns `AppError::LoggingConfig` if setup fails.
 pub fn init_global_tracing(level: &str) -> Result<WorkerGuard> {
     let log_level = Level::from_str(level)
-        .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {}", level)))?;
+        .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {level}")))?;
 
     let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
     tracing::subscriber::set_global_default(subscriber).map_err(|e| {
-        AppError::LoggingConfig(format!("Failed to set global default subscriber: {}", e))
+        AppError::LoggingConfig(format!("Failed to set global default subscriber: {e}"))
     })?;
     eprintln!(
         "Setting global tracing subscriber to file appender in '{}'",
@@ -142,7 +141,7 @@ mod tests {
     ///   Returns `AppError::LoggingConfig` if setup fails.
     pub fn init_tracing(level: &str) -> Result<(WorkerGuard, TracingDefaultGuard)> {
         let log_level = Level::from_str(level)
-            .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {}", level)))?;
+            .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {level}")))?;
 
         let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
         let subscriber_guard = tracing::subscriber::set_default(subscriber);
@@ -217,7 +216,7 @@ mod tests {
         let expected_log_dir = get_expected_log_dir(&temp_data_home);
         println!("Expected log directory: {}", expected_log_dir.display());
         // Matches the pattern set in init: {prefix}.{suffix}
-        let expected_log_file = expected_log_dir.join(format!("{}.log", APP_NAME));
+        let expected_log_file = expected_log_dir.join(format!("{APP_NAME}.log"));
 
         println!("Expected log file path: {}", expected_log_file.display());
         // Ensure clean state
@@ -293,8 +292,7 @@ mod tests {
             "Original XDG_DATA_HOME: {:?}",
             original_xdg_data_home
                 .as_ref()
-                .map(|s| s.to_string_lossy())
-                .unwrap_or_else(|| "Not set".into())
+                .map_or_else(|| "Not set".into(), |s| s.to_string_lossy())
         );
         unsafe {
             env::set_var("XDG_DATA_HOME", &temp_data_home_debug);
@@ -307,7 +305,7 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
 
         let log_file_debug =
-            get_expected_log_dir(&temp_data_home_debug).join(format!("{}.log", APP_NAME));
+            get_expected_log_dir(&temp_data_home_debug).join(format!("{APP_NAME}.log"));
         let content_debug =
             fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
         assert!(
@@ -339,7 +337,7 @@ mod tests {
         thread::sleep(Duration::from_millis(100));
 
         let log_file_info =
-            get_expected_log_dir(&temp_data_home_info).join(format!("{}.log", APP_NAME));
+            get_expected_log_dir(&temp_data_home_info).join(format!("{APP_NAME}.log"));
         let content_info =
             fs::read_to_string(&log_file_info).expect("Failed to read info log file");
         assert!(
