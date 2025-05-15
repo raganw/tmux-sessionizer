@@ -3,46 +3,17 @@
 //! Handles the setup and configuration of application-wide logging using the `tracing` ecosystem.
 //! Configures logging to a rotating file located in the appropriate XDG data directory.
 
-// Add imports for DefaultGuard and manual Debug implementation
-// Remove std_fmt import as LoggerGuard is removed
-use tracing::subscriber::DefaultGuard as TracingDefaultGuard;
-use crate::config::Config; // Keep for now if tests use it, but init functions won't
 use crate::error::{AppError, Result};
 use cross_xdg::BaseDirs;
 use std::fs;
-use std::path::{Path, PathBuf}; // Added Path, PathBuf
-use std::str::FromStr; // Added FromStr for Level parsing
-use tracing::{debug, info, Level, Subscriber}; // Added Level, Subscriber
+use std::path::PathBuf;
+use std::str::FromStr;
+use tracing::{Level, Subscriber, info};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-pub const APP_NAME: &str = "tmux-sessionizer"; // Define app name for directory/file naming, ensure it's pub
-
-// Remove LoggerGuard struct and its Debug implementation
-// /// Represents the logging configuration and holds the guard for the non-blocking writer.
-// ///
-// /// The `WorkerGuard` must be kept alive for the duration of the application
-// /// to ensure logs are flushed.
-// // Modify LoggerGuard struct and implement Debug manually
-// // #[derive(Debug)] // Remove this
-// pub struct LoggerGuard {
-//     _worker_guard: WorkerGuard,
-//     _subscriber_guard: TracingDefaultGuard, // Renamed for clarity
-// }
-//
-// impl std_fmt::Debug for LoggerGuard {
-//     fn fmt(&self, f: &mut std_fmt::Formatter<'_>) -> std_fmt::Result {
-//         f.debug_struct("LoggerGuard")
-//             .field("_worker_guard", &"WorkerGuard { ... }") // Avoid printing internals
-//             .field("_subscriber_guard", &"TracingDefaultGuard { ... }") // Avoid printing internals
-//             .finish()
-//     }
-// }
-
-// Remove the old init function
-// pub fn init(config: &Config) -> Result<LoggerGuard> { ... }
-
+const APP_NAME: &str = "tmux-sessionizer";
 
 /// Initializes a file-based tracing subscriber.
 ///
@@ -96,49 +67,16 @@ fn init_file_subscriber(
     // 5. Create a non-blocking writer for performance.
     let (non_blocking_writer, worker_guard) = tracing_appender::non_blocking(file_appender);
 
-    // 6. Set up the EnvFilter using the module's APP_NAME
-    let filter_string = format!("{}={}", APP_NAME, default_level); // e.g., "tmux_sessionizer=debug"
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(filter_string));
-
-    // 7. Configure the tracing subscriber layers
-    let subscriber = tracing_subscriber::registry()
-        .with(
-            fmt::layer()
-                .with_writer(non_blocking_writer)
-                .with_ansi(false)
-                .with_file(true)
-                .with_line_number(true),
-        )
-        .with(filter);
+    // 6. Configure the tracing subscriber layers
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(non_blocking_writer)
+        .with_ansi(false)
+        .with_file(true)
+        .with_line_number(true)
+        .with_max_level(default_level)
+        .finish();
 
     Ok((worker_guard, subscriber, log_dir_path))
-}
-
-/// Creates a tracing/logging subscriber that is valid until the guards are dropped.
-///
-/// This function sets up logging to a file in the XDG data directory.
-/// The format layer logs spans/events in plain text, without color, one event per line.
-/// This is primarily useful for setting a temporary default subscriber in unit tests.
-///
-/// # Arguments
-///
-/// * `level` - A string slice representing the desired default log level (e.g., "info", "debug").
-///
-/// # Returns
-///
-/// * `Result<(WorkerGuard, TracingDefaultGuard)>` - Returns the worker guard for the
-///   non-blocking file appender and the guard for the default subscriber.
-///   Returns `AppError::LoggingConfig` if setup fails.
-pub fn init_tracing(level: &str) -> Result<(WorkerGuard, TracingDefaultGuard)> {
-    let log_level = Level::from_str(level)
-        .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {}", level)))?;
-
-    let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
-    let subscriber_guard = tracing::subscriber::set_default(subscriber);
-    // This log message will go to the newly set default subscriber (i.e., the file)
-    info!("initialized tracing. Log directory: {}", log_dir_path.display());
-    Ok((guard, subscriber_guard))
 }
 
 /// Creates and sets a global tracing/logging subscriber.
@@ -160,37 +98,69 @@ pub fn init_global_tracing(level: &str) -> Result<WorkerGuard> {
         .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {}", level)))?;
 
     let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
-    tracing::subscriber::set_global_default(subscriber)
-        .map_err(|e| AppError::LoggingConfig(format!("Failed to set global default subscriber: {}", e)))?;
+    tracing::subscriber::set_global_default(subscriber).map_err(|e| {
+        AppError::LoggingConfig(format!("Failed to set global default subscriber: {}", e))
+    })?;
+    eprintln!(
+        "Setting global tracing subscriber to file appender in '{}'",
+        log_dir_path.display()
+    );
     // This log message will go to the newly set global subscriber (i.e., the file)
-    info!("initialized global tracing. Log directory: {}", log_dir_path.display());
+    info!(
+        "initialized global tracing. Log directory: {}",
+        log_dir_path.display()
+    );
     Ok(guard)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    // Remove crate::config::Config import if no longer needed by create_test_config
-    // use crate::config::Config;
     use serial_test::serial;
     use std::env;
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::thread;
     use std::time::Duration;
     use tempfile::tempdir;
+    use tracing::subscriber::DefaultGuard as TracingDefaultGuard;
 
-    // Remove create_test_config helper function as it's no longer directly used by init functions
-    // fn create_test_config(debug_mode: bool) -> Config { ... }
+    /// Creates a tracing/logging subscriber that is valid until the guards are dropped.
+    ///
+    /// This function sets up logging to a file in the XDG data directory.
+    /// The format layer logs spans/events in plain text, without color, one event per line.
+    /// This is primarily useful for setting a temporary default subscriber in unit tests.
+    ///
+    /// # Arguments
+    ///
+    /// * `level` - A string slice representing the desired default log level (e.g., "info", "debug").
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(WorkerGuard, TracingDefaultGuard)>` - Returns the worker guard for the
+    ///   non-blocking file appender and the guard for the default subscriber.
+    ///   Returns `AppError::LoggingConfig` if setup fails.
+    pub fn init_tracing(level: &str) -> Result<(WorkerGuard, TracingDefaultGuard)> {
+        let log_level = Level::from_str(level)
+            .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {}", level)))?;
 
+        let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
+        let subscriber_guard = tracing::subscriber::set_default(subscriber);
+        // This log message will go to the newly set default subscriber (i.e., the file)
+        info!(
+            "initialized tracing. Log directory: {}",
+            log_dir_path.display()
+        );
+        Ok((guard, subscriber_guard))
+    }
 
     // Helper function to get the expected log directory path based on a temporary data home.
-    fn get_expected_log_dir(temp_data_home: &PathBuf) -> PathBuf {
+    fn get_expected_log_dir(temp_data_home: &Path) -> PathBuf {
         temp_data_home.join(APP_NAME)
     }
 
     #[test]
-    #[serial] // Modifies environment variables
+    #[serial]
     fn test_xdg_directory_determination_and_creation() {
         let temp_dir = tempdir().expect("Failed to create temp dir for XDG test");
         let temp_data_home = temp_dir.path().to_path_buf();
@@ -244,7 +214,6 @@ mod tests {
             env::set_var("XDG_DATA_HOME", &temp_data_home);
         }
 
-        let config = create_test_config(false); // Use info level
         let expected_log_dir = get_expected_log_dir(&temp_data_home);
         println!("Expected log directory: {}", expected_log_dir.display());
         // Matches the pattern set in init: {prefix}.{suffix}
@@ -284,7 +253,8 @@ mod tests {
             expected_log_file.exists(),
             "Log file '{}' should exist after init and logging. Content: {:?}",
             expected_log_file.display(),
-            fs::read_to_string(&expected_log_file).unwrap_or_else(|_| "Error reading file".to_string())
+            fs::read_to_string(&expected_log_file)
+                .unwrap_or_else(|_| "Error reading file".to_string())
         );
         assert!(
             expected_log_file.is_file(),
@@ -301,7 +271,6 @@ mod tests {
         assert!(content.contains("Test message for log file creation."));
         assert!(content.contains("initialized tracing. Log directory:"));
 
-
         // Clean up
         fs::remove_dir_all(&expected_log_dir).expect("Failed to clean up test log dir");
     }
@@ -315,7 +284,18 @@ mod tests {
         } // Ensure RUST_LOG is not set to interfere
         let temp_dir_debug = tempdir().expect("Failed temp dir for debug test");
         let temp_data_home_debug = temp_dir_debug.path().to_path_buf();
+        println!(
+            "Temporary data home for debug test: {}",
+            temp_data_home_debug.display()
+        );
         let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
+        println!(
+            "Original XDG_DATA_HOME: {:?}",
+            original_xdg_data_home
+                .as_ref()
+                .map(|s| s.to_string_lossy())
+                .unwrap_or_else(|| "Not set".into())
+        );
         unsafe {
             env::set_var("XDG_DATA_HOME", &temp_data_home_debug);
         }
