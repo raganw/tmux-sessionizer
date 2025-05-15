@@ -2,13 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [main, dev]
   pull_request:
-    branches: [ main, dev ]
+    branches: [main, dev]
 
 env:
   CARGO_TERM_COLOR: always
-
 jobs:
   build_and_test_linux:
     name: Build & Test (Linux)
@@ -20,6 +19,8 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+      - name: Install OpenSSL
+        run: sudo apt-get install -y libssl-dev
       - name: Build
         run: cargo build --verbose
       - name: Run tests
@@ -30,13 +31,12 @@ jobs:
         run: cargo fmt -- --check
       # - name: Security audit # Uncomment if cargo-audit is added
       #   run: cargo audit
-
   build_and_test_macos:
     name: Build & Test (macOS ${{ matrix.target }})
     runs-on: macos-latest # GitHub Actions uses macos-14 (ARM) or macos-13 (Intel) based on availability, but we specify target
     strategy:
       matrix:
-        target: [ x86_64-apple-darwin, aarch64-apple-darwin ]
+        target: [x86_64-apple-darwin, aarch64-apple-darwin]
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -45,6 +45,11 @@ jobs:
           toolchain: stable
           override: true
           target: ${{ matrix.target }}
+      - name: Install OpenSSL
+        run: brew install openssl
+      - name: Set OpenSSL Directory
+        run: echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+        shell: bash
       - name: Build
         run: cargo build --verbose --target ${{ matrix.target }}
       - name: Run tests
