@@ -45,11 +45,14 @@ jobs:
           toolchain: stable
           override: true
           target: ${{ matrix.target }}
-      - name: Install OpenSSL
-        run: brew install openssl
-      - name: Set OpenSSL Directory
-        run: echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
-        shell: bash
+      - name: Set up OpenSSL
+        run: |
+          brew install pkgconfig openssl
+          # echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          # echo "OPENSSL_LIB_DIR=$(brew --prefix openssl)/lib" >> $GITHUB_ENV
+          # echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl)/include" >> $GITHUB_ENV
+          # echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
+          shell: bash
       - name: Build
         run: cargo build --verbose --target ${{ matrix.target }}
       - name: Run tests
