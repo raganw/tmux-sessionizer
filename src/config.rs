@@ -56,14 +56,9 @@ fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathVal
 /// Returns `Err(ConfigError)` for IO errors during reading or parsing errors.
 fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
     // Use cross_xdg to find the config directory
-    let base_dirs = match BaseDirs::new() {
-        Ok(bd) => bd,
-        Err(e) => {
-            // Use eprintln! because tracing might not be set up yet
-            eprintln!("[ERROR] Could not determine XDG base directories: {e}");
-            // Re-use the existing error variant, the log provides the detail.
-            return Err(ConfigError::CannotDetermineConfigDir);
-        }
+    let Ok(base_dirs) = BaseDirs::new() else {
+        // Re-use the existing error variant, the log provides the detail.
+        return Err(ConfigError::CannotDetermineConfigDir);
     };
     // Convert the &Path from config_home() into an owned PathBuf
     let mut config_path: PathBuf = base_dirs.config_home().to_path_buf();
@@ -72,32 +67,13 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
     config_path.push("tmux-sessionizer"); // Application-specific subdirectory
     config_path.push("tmux-sessionizer.toml"); // The config file itself
 
-    // Use eprintln! for logging before tracing is initialized
-    eprintln!(
-        "[DEBUG] Attempting to load configuration from file: {}",
-        config_path.display()
-    );
-
     if !config_path.exists() {
-        eprintln!(
-            "[INFO] Configuration file not found at {}. Proceeding with defaults and CLI arguments.",
-            config_path.display()
-        );
         return Ok(None);
     }
 
-    eprintln!(
-        "[INFO] Configuration file found at {}. Reading and parsing.",
-        config_path.display()
-    );
     let content = match fs::read_to_string(&config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!(
-                "[ERROR] Failed to read configuration file content from {}: {}",
-                config_path.display(),
-                e
-            );
             // Clone the PathBuf for the error variant
             return Err(ConfigError::FileReadError {
                 path: config_path.clone(),
@@ -106,21 +82,9 @@ fn load_config_file() -> Result<Option<FileConfig>, ConfigError> {
         }
     };
 
-    eprintln!("[TRACE] Successfully read configuration file content:\n{content}");
     match toml::from_str::<FileConfig>(&content) {
-        Ok(parsed_config) => {
-            eprintln!(
-                "[INFO] Successfully parsed configuration file: {}",
-                config_path.display()
-            );
-            Ok(Some(parsed_config))
-        }
+        Ok(parsed_config) => Ok(Some(parsed_config)),
         Err(e) => {
-            eprintln!(
-                "[ERROR] Failed to parse TOML configuration from file {}: {}",
-                config_path.display(),
-                e
-            );
             // Clone the PathBuf for the error variant
             Err(ConfigError::FileParseError {
                 path: config_path.clone(),
@@ -219,31 +183,17 @@ impl Config {
     /// parsing command-line arguments, and merging them.
     /// Also performs validation.
     pub fn new() -> Result<Self, ConfigError> {
-        // Use eprintln! here because tracing is not yet initialized
-        eprintln!("[TRACE] Setting up configuration");
         let cli_args = CliArgs::parse();
-        eprintln!("[DEBUG] Parsed command line arguments: {cli_args:?}");
 
         // Load configuration from file
         let file_config = match load_config_file() {
-            Ok(fc) => {
-                eprintln!(
-                    "[TRACE] Configuration file load attempt completed. Loaded: {}",
-                    fc.is_some()
-                );
-                fc
-            }
+            Ok(fc) => fc,
             Err(e) => {
-                // Use eprintln! for errors occurring before tracing is set up
-                eprintln!(
-                    "[ERROR] Failed to load or parse the configuration file: {e}. This is a fatal configuration error."
-                );
                 return Err(e);
             }
         };
 
         let config = Self::build(file_config, cli_args)?;
-        eprintln!("[DEBUG] Constructed final configuration: {config:?}");
 
         // Validate paths after merging and expansion
         config.validate()?; // Validation logs internally using tracing, but that's okay if it happens after setup
@@ -267,14 +217,9 @@ impl Config {
 
         // Determine log directory path (early, before other processing that might log)
         // This uses the APP_NAME constant defined in this file.
-        let xdg_base_dirs = match BaseDirs::new() {
-            Ok(bd) => bd,
-            Err(e) => {
-                // Use eprintln! because tracing might not be set up yet or might be misconfigured
-                eprintln!("[ERROR] Could not determine XDG base directories for logging: {e}");
-                // This error indicates a fundamental problem finding user directories.
-                return Err(ConfigError::CannotDetermineConfigDir);
-            }
+        let Ok(xdg_base_dirs) = BaseDirs::new() else {
+            // This error indicates a fundamental problem finding user directories.
+            return Err(ConfigError::CannotDetermineConfigDir);
         };
         config.log_directory = xdg_base_dirs.data_home().join(APP_NAME);
         trace!(log_dir = %config.log_directory.display(), "Determined log directory path");

@@ -92,10 +92,6 @@ pub fn init_global_tracing(log_directory: &Path, level: &str) -> Result<WorkerGu
     tracing::subscriber::set_global_default(subscriber).map_err(|e| {
         AppError::LoggingConfig(format!("Failed to set global default subscriber: {e}"))
     })?;
-    eprintln!(
-        "Setting global tracing subscriber to file appender in '{}'",
-        log_dir_path.display()
-    );
     // This log message will go to the newly set global subscriber (i.e., the file)
     info!(
         "initialized global tracing. Log directory: {}",
@@ -110,7 +106,7 @@ mod tests {
     use serial_test::serial;
     use std::env;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::thread;
     use std::time::Duration;
     use tempfile::tempdir;

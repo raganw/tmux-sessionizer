@@ -118,7 +118,7 @@ impl FuzzyFinder {
 
         // Configure Skim options
         let options = SkimOptionsBuilder::default()
-            .height("50%".to_string())
+            .height("100%".to_string())
             .multi(false) // Single selection mode
             .prompt("Select project: ".to_string())
             // .header(Some("Choose a directory:")) // Alternative to prompt
