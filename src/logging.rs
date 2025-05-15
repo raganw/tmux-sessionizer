@@ -228,16 +228,51 @@ mod tests {
             fs::remove_dir_all(&expected_log_dir)
                 .expect("Failed to clean up pre-existing test log dir");
         }
+        // create the directory
+        fs::create_dir_all(&expected_log_dir).expect("Failed to create test log dir");
+        // create the file
+        fs::File::create(&expected_log_file).expect("Failed to create test log file");
+        // write debug message to the file
+        fs::write(
+            &expected_log_file,
+            "This is a test log file for tmux-sessionizer.",
+        )
+        .expect("Failed to write to test log file");
 
         // Initialize logging using init_tracing
-        let (_worker_guard, subscriber_guard) =
+        let (worker_guard, subscriber_guard) =
             init_tracing("info").expect("Logger initialization failed");
 
         tracing::info!("Test message for log file creation.");
 
-        drop(subscriber_guard); // Drop subscriber guard first
-        // _worker_guard will be dropped here, ensuring flush
-        thread::sleep(Duration::from_millis(200)); // Allow more time for flush
+        drop(subscriber_guard);
+        drop(worker_guard);
+        // read the contents of the temp directory
+        let temp_dir_content = fs::read_dir(temp_data_home.join(APP_NAME))
+            .expect("Failed to read temp directory")
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .collect::<Vec<_>>();
+        println!(
+            "Temp directory content: {}",
+            temp_dir_content
+                .iter()
+                .map(|path| format!("  {}", path.display()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        // read the log file to check if the message was logged
+        let log_file_content =
+            fs::read_to_string(&expected_log_file).expect("Failed to read log file content");
+        println!(
+            "Log file content: {}",
+            log_file_content
+                .lines()
+                .map(|line| format!("  {line}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
 
         match original_xdg_data_home {
             Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
@@ -283,17 +318,7 @@ mod tests {
         } // Ensure RUST_LOG is not set to interfere
         let temp_dir_debug = tempdir().expect("Failed temp dir for debug test");
         let temp_data_home_debug = temp_dir_debug.path().to_path_buf();
-        println!(
-            "Temporary data home for debug test: {}",
-            temp_data_home_debug.display()
-        );
         let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
-        println!(
-            "Original XDG_DATA_HOME: {:?}",
-            original_xdg_data_home
-                .as_ref()
-                .map_or_else(|| "Not set".into(), |s| s.to_string_lossy())
-        );
         unsafe {
             env::set_var("XDG_DATA_HOME", &temp_data_home_debug);
         }
