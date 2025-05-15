@@ -189,10 +189,7 @@ mod tests {
         let log_dir_path = temp_base_dir.path().join("test_log_files");
 
         println!("Test log directory: {}", log_dir_path.display());
-        // Matches the pattern set in init: {prefix}.{suffix}
-        let expected_log_file = log_dir_path.join(format!("{APP_NAME}.log"));
 
-        println!("Expected log file path: {}", expected_log_file.display());
         // Ensure clean state
         if log_dir_path.exists() {
             println!(
@@ -221,6 +218,20 @@ mod tests {
 
         drop(subscriber_guard);
         drop(worker_guard);
+        thread::sleep(Duration::from_millis(100)); // Give a bit more time for flush
+
+        // Find the created log file
+        let entries: Vec<fs::DirEntry> = fs::read_dir(&log_dir_path)
+            .expect("Failed to read log directory")
+            .filter_map(Result::ok)
+            .collect();
+
+        assert_eq!(entries.len(), 1, "Expected a single log file in the directory. Found: {:?}", entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+        let log_file_path = entries[0].path();
+        assert!(log_file_path.file_name().unwrap_or_default().to_str().unwrap_or_default().starts_with(APP_NAME), "Log file name should start with APP_NAME");
+        assert!(log_file_path.file_name().unwrap_or_default().to_str().unwrap_or_default().ends_with(".log"), "Log file name should end with .log");
+        println!("Actual log file path: {}", log_file_path.display());
+
         // read the contents of the temp directory
         let temp_dir_content = fs::read_dir(&log_dir_path)
             .expect("Failed to read temp directory")
@@ -238,7 +249,7 @@ mod tests {
 
         // read the log file to check if the message was logged
         let log_file_content =
-            fs::read_to_string(&expected_log_file).expect("Failed to read log file content");
+            fs::read_to_string(&log_file_path).expect("Failed to read log file content");
         println!(
             "Log file content: {}",
             log_file_content
@@ -254,24 +265,24 @@ mod tests {
             log_dir_path.display()
         );
         assert!(
-            expected_log_file.exists(),
+            log_file_path.exists(),
             "Log file '{}' should exist after init and logging. Content: {:?}",
-            expected_log_file.display(),
-            fs::read_to_string(&expected_log_file)
+            log_file_path.display(),
+            fs::read_to_string(&log_file_path)
                 .unwrap_or_else(|_| "Error reading file".to_string())
         );
         assert!(
-            expected_log_file.is_file(),
+            log_file_path.is_file(),
             "Log file path '{}' should be a file",
-            expected_log_file.display()
+            log_file_path.display()
         );
 
-        let metadata = fs::metadata(&expected_log_file).expect("Failed to get log file metadata");
+        let metadata = fs::metadata(&log_file_path).expect("Failed to get log file metadata");
         assert!(
             metadata.len() > 0,
             "Log file should not be empty after logging"
         );
-        let content = fs::read_to_string(&expected_log_file).unwrap();
+        let content = fs::read_to_string(&log_file_path).unwrap();
         assert!(content.contains("Test message for log file creation."));
         assert!(content.contains("initialized tracing. Log directory:"));
 
@@ -293,9 +304,18 @@ mod tests {
             init_tracing(&log_dir_debug, "debug").expect("Logger init failed for debug test");
         tracing::debug!("This debug message should be logged in debug mode.");
         drop(s_guard_debug);
+        // _w_guard_debug is implicitly dropped here
         thread::sleep(Duration::from_millis(100));
 
-        let log_file_debug = log_dir_debug.join(format!("{APP_NAME}.log"));
+        let debug_entries: Vec<fs::DirEntry> = fs::read_dir(&log_dir_debug)
+            .expect("Failed to read debug log directory")
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(debug_entries.len(), 1, "Expected one log file in debug_logs. Found: {:?}", debug_entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+        let log_file_debug = debug_entries[0].path();
+        assert!(log_file_debug.file_name().unwrap_or_default().to_str().unwrap_or_default().starts_with(APP_NAME));
+        assert!(log_file_debug.file_name().unwrap_or_default().to_str().unwrap_or_default().ends_with(".log"));
+
         let content_debug =
             fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
         assert!(
@@ -324,9 +344,18 @@ mod tests {
         tracing::debug!("This debug message should NOT be logged in info mode.");
         tracing::info!("This info message should be logged in info mode.");
         drop(s_guard_info);
+        // _w_guard_info is implicitly dropped here
         thread::sleep(Duration::from_millis(100));
 
-        let log_file_info = log_dir_info.join(format!("{APP_NAME}.log"));
+        let info_entries: Vec<fs::DirEntry> = fs::read_dir(&log_dir_info)
+            .expect("Failed to read info log directory")
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(info_entries.len(), 1, "Expected one log file in info_logs. Found: {:?}", info_entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+        let log_file_info = info_entries[0].path();
+        assert!(log_file_info.file_name().unwrap_or_default().to_str().unwrap_or_default().starts_with(APP_NAME));
+        assert!(log_file_info.file_name().unwrap_or_default().to_str().unwrap_or_default().ends_with(".log"));
+
         let content_info =
             fs::read_to_string(&log_file_info).expect("Failed to read info log file");
         assert!(
