@@ -47,12 +47,12 @@ jobs:
           target: ${{ matrix.target }}
       - name: Set up OpenSSL
         run: |
-          brew install pkgconfig openssl
-          # echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
-          # echo "OPENSSL_LIB_DIR=$(brew --prefix openssl)/lib" >> $GITHUB_ENV
-          # echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl)/include" >> $GITHUB_ENV
-          # echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
-          shell: bash
+          brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=$(brew --prefix openssl)/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl)/include" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
+        shell: bash
       - name: Build
         run: cargo build --verbose --target ${{ matrix.target }}
       - name: Run tests
