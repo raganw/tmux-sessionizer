@@ -45,15 +45,25 @@ jobs:
           toolchain: stable
           override: true
           target: ${{ matrix.target }}
-      - name: Set up environment for cross-compilation
+      - name: Set up OpenSSL for target architecture
         run: |
-          # Setup for vendored OpenSSL
-          echo 'OPENSSL_STATIC=1' >> $GITHUB_ENV
-          echo 'OPENSSL_NO_VENDOR=0' >> $GITHUB_ENV
+          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+            # For Intel target architecture
+            arch -x86_64 brew install openssl@3
+            echo "OPENSSL_DIR=$(arch -x86_64 brew --prefix openssl@3)" >> $GITHUB_ENV
+            echo "OPENSSL_LIB_DIR=$(arch -x86_64 brew --prefix openssl@3)/lib" >> $GITHUB_ENV
+            echo "OPENSSL_INCLUDE_DIR=$(arch -x86_64 brew --prefix openssl@3)/include" >> $GITHUB_ENV
+          else
+            # For arm64 target architecture
+            brew install openssl@3
+            echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+            echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
+            echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@3)/include" >> $GITHUB_ENV
+          fi
+          echo "PKG_CONFIG_PATH=$OPENSSL_LIB_DIR/pkgconfig" >> $GITHUB_ENV
         shell: bash
-
-      - name: Build with vendored OpenSSL
-        run: cargo build --verbose --target ${{ matrix.target }} --features openssl-sys/vendored
+      - name: Build
+        run: cargo build --verbose --target ${{ matrix.target }}
       - name: Run tests
         # Note: Running tests for cross-compiled targets might require specific setup
         # If tests fail, consider running them only on native architecture or using QEMU
