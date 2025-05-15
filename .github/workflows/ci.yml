@@ -45,16 +45,15 @@ jobs:
           toolchain: stable
           override: true
           target: ${{ matrix.target }}
-      - name: Set up OpenSSL
+      - name: Set up environment for cross-compilation
         run: |
-          brew install openssl@3
-          echo "OPENSSL_DIR=$(brew --prefix openssl)" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=$(brew --prefix openssl)/lib" >> $GITHUB_ENV
-          echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl)/include" >> $GITHUB_ENV
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig" >> $GITHUB_ENV
+          # Setup for vendored OpenSSL
+          echo 'OPENSSL_STATIC=1' >> $GITHUB_ENV
+          echo 'OPENSSL_NO_VENDOR=0' >> $GITHUB_ENV
         shell: bash
-      - name: Build
-        run: cargo build --verbose --target ${{ matrix.target }}
+
+      - name: Build with vendored OpenSSL
+        run: cargo build --verbose --target ${{ matrix.target }} --features openssl-sys/vendored
       - name: Run tests
         # Note: Running tests for cross-compiled targets might require specific setup
         # If tests fail, consider running them only on native architecture or using QEMU
