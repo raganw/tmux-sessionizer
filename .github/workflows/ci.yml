@@ -31,12 +31,9 @@ jobs:
         run: cargo fmt -- --check
       # - name: Security audit # Uncomment if cargo-audit is added
       #   run: cargo audit
-  build_and_test_macos:
-    name: Build & Test (macOS ${{ matrix.target }})
-    runs-on: macos-latest # GitHub Actions uses macos-14 (ARM) or macos-13 (Intel) based on availability, but we specify target
-    strategy:
-      matrix:
-        target: [x86_64-apple-darwin, aarch64-apple-darwin]
+  build_and_test_macos_intel:
+    name: Build & Test (macOS x86_64-apple-darwin)
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rs/toolchain@v1
@@ -44,35 +41,45 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-          target: ${{ matrix.target }}
       - name: Set up OpenSSL for target architecture
         run: |
-          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
-            # For Intel target architecture
-            arch -x86_64 brew install openssl@3
-            echo "OPENSSL_DIR=$(arch -x86_64 brew --prefix openssl@3)" >> $GITHUB_ENV
-            echo "OPENSSL_LIB_DIR=$(arch -x86_64 brew --prefix openssl@3)/lib" >> $GITHUB_ENV
-            echo "OPENSSL_INCLUDE_DIR=$(arch -x86_64 brew --prefix openssl@3)/include" >> $GITHUB_ENV
-          else
-            # For arm64 target architecture
-            brew install openssl@3
-            echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
-            echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
-            echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@3)/include" >> $GITHUB_ENV
-          fi
+          brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@3)/include" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=$OPENSSL_LIB_DIR/pkgconfig" >> $GITHUB_ENV
         shell: bash
       - name: Build
-        run: cargo build --verbose --target ${{ matrix.target }}
+        run: cargo build --verbose
       - name: Run tests
-        # Note: Running tests for cross-compiled targets might require specific setup
-        # If tests fail, consider running them only on native architecture or using QEMU
-        # For now, we assume tests can run or are architecture-independent
-        # If specific tests need hardware access, they might need conditional compilation or execution
-        run: cargo test --verbose --target ${{ matrix.target }}
+        run: cargo test --verbose
       - name: Run clippy
-        run: cargo clippy --target ${{ matrix.target }} -- -W clippy::pedantic -D warnings
+        run: cargo clippy -- -W clippy::pedantic -D warnings
       - name: Check formatting
         run: cargo fmt -- --check
-      # - name: Security audit # Uncomment if cargo-audit is added
-      #   run: cargo audit
+  build_and_test_macos_arm:
+    name: Build & Test (macOS aarch64-apple-darwin)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Set up OpenSSL for target architecture
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@3)/include" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=$OPENSSL_LIB_DIR/pkgconfig" >> $GITHUB_ENV
+        shell: bash
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: cargo test --verbose
+      - name: Run clippy
+        run: cargo clippy -- -W clippy::pedantic -D warnings
+      - name: Check formatting
+        run: cargo fmt -- --check
