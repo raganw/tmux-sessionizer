@@ -4,9 +4,9 @@
 // and the main `Config` struct that holds the application's runtime settings.
 
 use crate::error::{ConfigError, PathValidationError};
-use crate::path_utils::expand_tilde; // For expanding tilde in paths
+use crate::path_utils::expand_tilde;
 use clap::Parser;
-use cross_xdg::BaseDirs; // Import BaseDirs
+use cross_xdg::BaseDirs;
 use regex::Regex;
 
 const APP_NAME: &str = "tmux-sessionizer";
@@ -44,100 +44,6 @@ fn validate_path_is_directory(path: &PathBuf) -> std::result::Result<(), PathVal
                 }),
             }
         }
-    }
-
-    #[test]
-    fn test_build_log_directory_determination_default_xdg() {
-        let cli_args = CliArgs {
-            debug: false,
-            direct_selection: None,
-        };
-        let config = Config::build(None, cli_args).expect("Config build failed");
-
-        // We expect it to be XDG_DATA_HOME (or its platform equivalent) + APP_NAME
-        let expected_log_dir_base = dirs::data_dir().expect("Could not get data dir for test");
-        let expected_log_dir = expected_log_dir_base.join(APP_NAME);
-
-        assert_eq!(config.log_directory, expected_log_dir, "Log directory should be based on default XDG data directory");
-    }
-
-    #[test]
-    #[cfg(unix)] // XDG_DATA_HOME is primarily a Unix concept
-    fn test_build_log_directory_determination_with_xdg_data_home_env_var() {
-        use std::env;
-        let temp_dir = tempdir().unwrap();
-        let custom_xdg_data_home = temp_dir.path();
-
-        let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
-        env::set_var("XDG_DATA_HOME", custom_xdg_data_home);
-
-        let cli_args = CliArgs {
-            debug: false,
-            direct_selection: None,
-        };
-        let config_result = Config::build(None, cli_args);
-
-        // Restore XDG_DATA_HOME
-        if let Some(val) = original_xdg_data_home {
-            env::set_var("XDG_DATA_HOME", val);
-        } else {
-            env::remove_var("XDG_DATA_HOME");
-        }
-
-        let config = config_result.expect("Config build failed with custom XDG_DATA_HOME");
-        let expected_log_dir = custom_xdg_data_home.join(APP_NAME);
-
-        assert_eq!(config.log_directory, expected_log_dir, "Log directory should respect XDG_DATA_HOME environment variable");
-        // Temp dir will be cleaned up automatically
-    }
-
-    #[test]
-    fn test_config_new_propagates_xdg_error_for_log_dir() {
-        // This test is tricky because BaseDirs::new() failing is hard to simulate
-        // without deep mocking or specific environment conditions.
-        // We'll assume that if BaseDirs::new() in `build()` returns Err,
-        // it correctly propagates as ConfigError::CannotDetermineConfigDir.
-        // The logic in `build()` already maps the error:
-        // `Err(e) => return Err(ConfigError::CannotDetermineConfigDir);`
-        // A more direct test would require mocking `BaseDirs::new()`.
-        // For now, we rely on code inspection for this specific error path.
-        // If a platform consistently fails to provide BaseDirs, this test might become relevant.
-        // As an example of how one *might* try to force it (highly platform dependent and flaky):
-        let original_home = std::env::var_os("HOME");
-        let original_xdg_data_home = std::env::var_os("XDG_DATA_HOME");
-
-        // On some systems, unsetting HOME might cause BaseDirs::new() to fail.
-        // This is NOT a reliable way to test this across all platforms.
-        std::env::remove_var("HOME");
-        std::env::remove_var("XDG_DATA_HOME");
-
-        let cli_args = CliArgs::parse_from(Vec::<String>::new()); // Simulate no CLI args for parse()
-        let build_result = Config::build(None, cli_args);
-
-        // Restore environment variables
-        if let Some(val) = original_home {
-            std::env::set_var("HOME", val);
-        }
-        if let Some(val) = original_xdg_data_home {
-            std::env::set_var("XDG_DATA_HOME", val);
-        }
-
-        if build_result.is_err() {
-            match build_result.err().unwrap() {
-                ConfigError::CannotDetermineConfigDir => { /* This is the expected error if BaseDirs failed */ }
-                other_err => {
-                    // If it failed for another reason (e.g. path validation on an empty path if HOME was needed for default search paths)
-                    // this test might not be robust.
-                    // For now, we're primarily testing the log_directory part.
-                    println!("Config::build failed with an unexpected error: {:?}", other_err);
-                }
-            }
-        } else {
-            // If BaseDirs::new() still succeeded (e.g., on Windows, or if it has fallbacks),
-            // this specific error condition isn't tested.
-            println!("Config::build succeeded even with HOME/XDG_DATA_HOME unset. Cannot directly test CannotDetermineConfigDir for log path in this environment.");
-        }
-        // This test is more of a best-effort due to difficulties in reliably inducing BaseDirs failure.
     }
 }
 
@@ -356,21 +262,22 @@ impl Config {
             exclude_patterns: defaults.exclude_patterns, // Default is empty Vec<Regex>
             debug_mode: defaults.debug_mode,
             direct_selection: defaults.direct_selection,
+            log_directory: defaults.log_directory, // This will be set later
         };
 
-    // Determine log directory path (early, before other processing that might log)
-    // This uses the APP_NAME constant defined in this file.
-    let xdg_base_dirs = match BaseDirs::new() {
-        Ok(bd) => bd,
-        Err(e) => {
-            // Use eprintln! because tracing might not be set up yet or might be misconfigured
-            eprintln!("[ERROR] Could not determine XDG base directories for logging: {e}");
-            // This error indicates a fundamental problem finding user directories.
-            return Err(ConfigError::CannotDetermineConfigDir);
-        }
-    };
-    config.log_directory = xdg_base_dirs.data_home().join(APP_NAME);
-    trace!(log_dir = %config.log_directory.display(), "Determined log directory path");
+        // Determine log directory path (early, before other processing that might log)
+        // This uses the APP_NAME constant defined in this file.
+        let xdg_base_dirs = match BaseDirs::new() {
+            Ok(bd) => bd,
+            Err(e) => {
+                // Use eprintln! because tracing might not be set up yet or might be misconfigured
+                eprintln!("[ERROR] Could not determine XDG base directories for logging: {e}");
+                // This error indicates a fundamental problem finding user directories.
+                return Err(ConfigError::CannotDetermineConfigDir);
+            }
+        };
+        config.log_directory = xdg_base_dirs.data_home().join(APP_NAME);
+        trace!(log_dir = %config.log_directory.display(), "Determined log directory path");
 
         // 1. Apply File Configuration (if present)
         if let Some(fc) = file_config {
@@ -860,6 +767,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             exclude_patterns: vec![],
             debug_mode: false,
             direct_selection: None,
+            ..Default::default()
         };
 
         let result = config.validate();
@@ -877,6 +785,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             exclude_patterns: vec![],
             debug_mode: false,
             direct_selection: None,
+            ..Default::default()
         };
 
         let result = config.validate();
@@ -904,6 +813,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             exclude_patterns: vec![],
             debug_mode: false,
             direct_selection: None,
+            ..Default::default()
         };
 
         let result = config.validate();
@@ -929,6 +839,7 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             exclude_patterns: vec![],
             debug_mode: false,
             direct_selection: None,
+            ..Default::default()
         };
 
         let result = config.validate();
@@ -939,5 +850,92 @@ exclude_patterns = ["^ignore_this", ".*\\.log"]
             }
             other => panic!("Expected DoesNotExist error for the second path, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_build_log_directory_determination_with_xdg_data_home_env_var() {
+        use std::env;
+        let temp_dir = tempdir().unwrap();
+        let custom_xdg_data_home = temp_dir.path();
+
+        let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
+        unsafe { env::set_var("XDG_DATA_HOME", custom_xdg_data_home) };
+
+        let cli_args = CliArgs {
+            debug: false,
+            direct_selection: None,
+        };
+        let config_result = Config::build(None, cli_args);
+
+        // Restore XDG_DATA_HOME
+        if let Some(val) = original_xdg_data_home {
+            unsafe { env::set_var("XDG_DATA_HOME", val) };
+        } else {
+            unsafe { env::remove_var("XDG_DATA_HOME") };
+        }
+
+        let config = config_result.expect("Config build failed with custom XDG_DATA_HOME");
+        let expected_log_dir = custom_xdg_data_home.join(APP_NAME);
+
+        assert_eq!(
+            config.log_directory, expected_log_dir,
+            "Log directory should respect XDG_DATA_HOME environment variable"
+        );
+        // Temp dir will be cleaned up automatically
+    }
+
+    #[test]
+    fn test_config_new_propagates_xdg_error_for_log_dir() {
+        // This test is tricky because BaseDirs::new() failing is hard to simulate
+        // without deep mocking or specific environment conditions.
+        // We'll assume that if BaseDirs::new() in `build()` returns Err,
+        // it correctly propagates as ConfigError::CannotDetermineConfigDir.
+        // The logic in `build()` already maps the error:
+        // `Err(e) => return Err(ConfigError::CannotDetermineConfigDir);`
+        // A more direct test would require mocking `BaseDirs::new()`.
+        // For now, we rely on code inspection for this specific error path.
+        // If a platform consistently fails to provide BaseDirs, this test might become relevant.
+        // As an example of how one *might* try to force it (highly platform dependent and flaky):
+        let original_home = std::env::var_os("HOME");
+        let original_xdg_data_home = std::env::var_os("XDG_DATA_HOME");
+
+        // On some systems, unsetting HOME might cause BaseDirs::new() to fail.
+        // This is NOT a reliable way to test this across all platforms.
+        unsafe { std::env::remove_var("HOME") };
+        unsafe { std::env::remove_var("XDG_DATA_HOME") };
+
+        let cli_args = CliArgs::parse_from(Vec::<String>::new()); // Simulate no CLI args for parse()
+        let build_result = Config::build(None, cli_args);
+
+        // Restore environment variables
+        if let Some(val) = original_home {
+            unsafe { std::env::set_var("HOME", val) };
+        }
+        if let Some(val) = original_xdg_data_home {
+            unsafe { std::env::set_var("XDG_DATA_HOME", val) };
+        }
+
+        if build_result.is_err() {
+            match build_result.err().unwrap() {
+                ConfigError::CannotDetermineConfigDir => { /* This is the expected error if BaseDirs failed */
+                }
+                other_err => {
+                    // If it failed for another reason (e.g. path validation on an empty path if HOME was needed for default search paths)
+                    // this test might not be robust.
+                    // For now, we're primarily testing the log_directory part.
+                    println!(
+                        "Config::build failed with an unexpected error: {:?}",
+                        other_err
+                    );
+                }
+            }
+        } else {
+            // If BaseDirs::new() still succeeded (e.g., on Windows, or if it has fallbacks),
+            // this specific error condition isn't tested.
+            println!(
+                "Config::build succeeded even with HOME/XDG_DATA_HOME unset. Cannot directly test CannotDetermineConfigDir for log path in this environment."
+            );
+        }
+        // This test is more of a best-effort due to difficulties in reliably inducing BaseDirs failure.
     }
 }

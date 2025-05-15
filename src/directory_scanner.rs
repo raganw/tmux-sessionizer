@@ -590,7 +590,7 @@ mod tests {
             exclude_patterns: vec![],
             debug_mode: false, // or true for more test output
             direct_selection: None,
-            // Initialize other fields if they become non-optional or affect tests
+            ..Default::default()
         }
     }
 

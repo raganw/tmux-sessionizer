@@ -4,9 +4,8 @@
 //! Configures logging to a rotating file located in the appropriate XDG data directory.
 
 use crate::error::{AppError, Result};
-use cross_xdg::BaseDirs;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::{Level, Subscriber, info};
 use tracing_appender::non_blocking::WorkerGuard;
@@ -132,8 +131,11 @@ mod tests {
     /// * `Result<(WorkerGuard, TracingDefaultGuard)>` - Returns the worker guard for the
     ///   non-blocking file appender and the guard for the default subscriber.
     ///   Returns `AppError::LoggingConfig` if setup fails.
-    pub fn init_tracing(log_directory: &Path, level: &str) -> Result<(WorkerGuard, TracingDefaultGuard)> {
-    let log_level = Level::from_str(level)
+    pub fn init_tracing(
+        log_directory: &Path,
+        level: &str,
+    ) -> Result<(WorkerGuard, TracingDefaultGuard)> {
+        let log_level = Level::from_str(level)
             .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {level}")))?;
 
         let (guard, subscriber, log_dir_path) = init_file_subscriber(log_directory, log_level)?;
@@ -152,18 +154,18 @@ mod tests {
         let temp_base_dir = tempdir().expect("Failed to create temp base dir for log test");
         // Define the log directory path within the temp base directory
         let log_dir_path = temp_base_dir.path().join("test_logs");
-    
+
         // Ensure the directory does not exist before the call within init
         // (it shouldn't as log_dir_path is unique to this test run)
         if log_dir_path.exists() {
             fs::remove_dir_all(&log_dir_path)
                 .expect("Failed to clean up pre-existing test log dir");
         }
-    
+
         // Call init_tracing to trigger directory creation logic
         let (_worker_guard, _subscriber_guard) =
             init_tracing(&log_dir_path, "info").expect("Logger initialization failed");
-    
+
         assert!(
             log_dir_path.exists(),
             "Log directory '{}' should have been created",
@@ -174,11 +176,11 @@ mod tests {
             "Log directory path '{}' should point to a directory",
             log_dir_path.display()
         );
-    
+
         // Clean up the created directory
         // temp_base_dir will be cleaned up automatically when it goes out of scope
     }
-    
+
     #[test]
     #[serial] // Modifies environment variables and global tracing state
     fn test_log_file_creation() {
@@ -189,7 +191,7 @@ mod tests {
         println!("Test log directory: {}", log_dir_path.display());
         // Matches the pattern set in init: {prefix}.{suffix}
         let expected_log_file = log_dir_path.join(format!("{APP_NAME}.log"));
-    
+
         println!("Expected log file path: {}", expected_log_file.display());
         // Ensure clean state
         if log_dir_path.exists() {
@@ -210,13 +212,13 @@ mod tests {
         //     "This is a test log file for tmux-sessionizer.",
         // )
         // .expect("Failed to write to test log file"); // Not needed
-    
+
         // Initialize logging using init_tracing
         let (worker_guard, subscriber_guard) =
             init_tracing(&log_dir_path, "info").expect("Logger initialization failed");
-    
+
         tracing::info!("Test message for log file creation.");
-    
+
         drop(subscriber_guard);
         drop(worker_guard);
         // read the contents of the temp directory
@@ -248,7 +250,8 @@ mod tests {
 
         assert!(
             log_dir_path.exists(),
-            "Log directory '{}' should exist after init", log_dir_path.display()
+            "Log directory '{}' should exist after init",
+            log_dir_path.display()
         );
         assert!(
             expected_log_file.exists(),
@@ -275,7 +278,7 @@ mod tests {
         // Clean up
         // temp_base_dir will be cleaned up automatically
     }
-    
+
     #[test]
     #[serial] // Modifies environment variables and global tracing state
     fn test_debug_mode_level_setting() {
@@ -292,12 +295,14 @@ mod tests {
         drop(s_guard_debug);
         thread::sleep(Duration::from_millis(100));
 
-        let log_file_debug =
-            log_dir_debug.join(format!("{APP_NAME}.log"));
+        let log_file_debug = log_dir_debug.join(format!("{APP_NAME}.log"));
         let content_debug =
             fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
         assert!(
-            content_debug.contains(&format!("initialized tracing. Log directory: {}", log_dir_debug.display())),
+            content_debug.contains(&format!(
+                "initialized tracing. Log directory: {}",
+                log_dir_debug.display()
+            )),
             "Log init message should be present"
         );
         // The filter string itself is "tmux_sessionizer=debug", not part of the log message from init_tracing
@@ -321,12 +326,14 @@ mod tests {
         drop(s_guard_info);
         thread::sleep(Duration::from_millis(100));
 
-        let log_file_info =
-            log_dir_info.join(format!("{APP_NAME}.log"));
+        let log_file_info = log_dir_info.join(format!("{APP_NAME}.log"));
         let content_info =
             fs::read_to_string(&log_file_info).expect("Failed to read info log file");
         assert!(
-            content_info.contains(&format!("initialized tracing. Log directory: {}", log_dir_info.display())),
+            content_info.contains(&format!(
+                "initialized tracing. Log directory: {}",
+                log_dir_info.display()
+            )),
             "Log init message should be present"
         );
         assert!(
