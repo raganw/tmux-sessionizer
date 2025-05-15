@@ -48,7 +48,7 @@ fn main() -> Result<()> {
 
     // Initialize global logging. The guard must stay in scope.
     let log_level_str = if config.debug_mode { "debug" } else { "info" };
-    let _logger_guard = logging::init_global_tracing(log_level_str)?;
+    let _logger_guard = logging::init_global_tracing(&config.log_directory, log_level_str)?;
 
     // This first log message will go to the file via the global subscriber
     tracing::info!("Application started");

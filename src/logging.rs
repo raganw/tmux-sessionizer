@@ -30,21 +30,14 @@ const APP_NAME: &str = "tmux-sessionizer";
 ///   and the path to the log directory.
 ///   Returns `AppError::LoggingConfig` if setup fails.
 fn init_file_subscriber(
+    log_directory: &Path,
     default_level: Level,
 ) -> Result<(WorkerGuard, impl Subscriber + Send + Sync, PathBuf)> {
-    // 1. Determine the XDG data directory
-    let base_dirs = BaseDirs::new()
-        .map_err(|e| AppError::LoggingConfig(format!("Failed to get XDG base dirs: {e}")))?;
-    let data_home = base_dirs.data_home();
-
-    // 2. Define the application-specific log directory path using the module's APP_NAME
-    let log_dir_path = data_home.join(APP_NAME);
-
     // 3. Create the log directory if it doesn't exist
-    fs::create_dir_all(&log_dir_path).map_err(|e| {
+    fs::create_dir_all(log_directory).map_err(|e| {
         AppError::LoggingConfig(format!(
             "Failed to create log directory '{}': {}",
-            log_dir_path.display(),
+            log_directory.display(),
             e
         ))
     })?;
@@ -54,11 +47,11 @@ fn init_file_subscriber(
         .rotation(Rotation::DAILY)
         .filename_prefix(APP_NAME) // Use module's APP_NAME for file prefix
         .filename_suffix("log")
-        .build(&log_dir_path)
+        .build(log_directory)
         .map_err(|e| {
             AppError::LoggingConfig(format!(
                 "Failed to initialize rolling file appender in '{}': {}",
-                log_dir_path.display(),
+                log_directory.display(),
                 e
             ))
         })?;
@@ -75,7 +68,7 @@ fn init_file_subscriber(
         .with_max_level(default_level)
         .finish();
 
-    Ok((worker_guard, subscriber, log_dir_path))
+    Ok((worker_guard, subscriber, log_directory.to_path_buf()))
 }
 
 /// Creates and sets a global tracing/logging subscriber.
@@ -92,11 +85,11 @@ fn init_file_subscriber(
 /// * `Result<WorkerGuard>` - Returns the worker guard for the non-blocking file appender.
 ///   This guard must be kept alive for the duration of the application to ensure logs are flushed.
 ///   Returns `AppError::LoggingConfig` if setup fails.
-pub fn init_global_tracing(level: &str) -> Result<WorkerGuard> {
+pub fn init_global_tracing(log_directory: &Path, level: &str) -> Result<WorkerGuard> {
     let log_level = Level::from_str(level)
         .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {level}")))?;
 
-    let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
+    let (guard, subscriber, log_dir_path) = init_file_subscriber(log_directory, log_level)?;
     tracing::subscriber::set_global_default(subscriber).map_err(|e| {
         AppError::LoggingConfig(format!("Failed to set global default subscriber: {e}"))
     })?;
@@ -139,11 +132,11 @@ mod tests {
     /// * `Result<(WorkerGuard, TracingDefaultGuard)>` - Returns the worker guard for the
     ///   non-blocking file appender and the guard for the default subscriber.
     ///   Returns `AppError::LoggingConfig` if setup fails.
-    pub fn init_tracing(level: &str) -> Result<(WorkerGuard, TracingDefaultGuard)> {
-        let log_level = Level::from_str(level)
+    pub fn init_tracing(log_directory: &Path, level: &str) -> Result<(WorkerGuard, TracingDefaultGuard)> {
+    let log_level = Level::from_str(level)
             .map_err(|_| AppError::LoggingConfig(format!("Invalid log level string: {level}")))?;
 
-        let (guard, subscriber, log_dir_path) = init_file_subscriber(log_level)?;
+        let (guard, subscriber, log_dir_path) = init_file_subscriber(log_directory, log_level)?;
         let subscriber_guard = tracing::subscriber::set_default(subscriber);
         // This log message will go to the newly set default subscriber (i.e., the file)
         info!(
@@ -153,102 +146,81 @@ mod tests {
         Ok((guard, subscriber_guard))
     }
 
-    // Helper function to get the expected log directory path based on a temporary data home.
-    fn get_expected_log_dir(temp_data_home: &Path) -> PathBuf {
-        temp_data_home.join(APP_NAME)
-    }
-
     #[test]
     #[serial]
     fn test_xdg_directory_determination_and_creation() {
-        let temp_dir = tempdir().expect("Failed to create temp dir for XDG test");
-        let temp_data_home = temp_dir.path().to_path_buf();
-        let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
-
-        // Set XDG_DATA_HOME for this test
-        unsafe {
-            env::set_var("XDG_DATA_HOME", &temp_data_home);
-        }
-
-        let expected_log_dir = get_expected_log_dir(&temp_data_home);
-
+        let temp_base_dir = tempdir().expect("Failed to create temp base dir for log test");
+        // Define the log directory path within the temp base directory
+        let log_dir_path = temp_base_dir.path().join("test_logs");
+    
         // Ensure the directory does not exist before the call within init
-        if expected_log_dir.exists() {
-            fs::remove_dir_all(&expected_log_dir)
+        // (it shouldn't as log_dir_path is unique to this test run)
+        if log_dir_path.exists() {
+            fs::remove_dir_all(&log_dir_path)
                 .expect("Failed to clean up pre-existing test log dir");
         }
-
+    
         // Call init_tracing to trigger directory creation logic
         let (_worker_guard, _subscriber_guard) =
-            init_tracing("info").expect("Logger initialization failed");
-
-        // Restore original environment variable
-        match original_xdg_data_home {
-            Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
-            None => unsafe { env::remove_var("XDG_DATA_HOME") },
-        }
-
+            init_tracing(&log_dir_path, "info").expect("Logger initialization failed");
+    
         assert!(
-            expected_log_dir.exists(),
+            log_dir_path.exists(),
             "Log directory '{}' should have been created",
-            expected_log_dir.display()
+            log_dir_path.display()
         );
         assert!(
-            expected_log_dir.is_dir(),
+            log_dir_path.is_dir(),
             "Log directory path '{}' should point to a directory",
-            expected_log_dir.display()
+            log_dir_path.display()
         );
-
+    
         // Clean up the created directory
-        fs::remove_dir_all(&expected_log_dir).expect("Failed to clean up test log dir");
+        // temp_base_dir will be cleaned up automatically when it goes out of scope
     }
-
+    
     #[test]
     #[serial] // Modifies environment variables and global tracing state
     fn test_log_file_creation() {
-        let temp_dir = tempdir().expect("Failed to create temp dir for log file test");
-        let temp_data_home = temp_dir.path().to_path_buf();
-        let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
-        unsafe {
-            env::set_var("XDG_DATA_HOME", &temp_data_home);
-        }
+        let temp_base_dir = tempdir().expect("Failed to create temp base dir for log file test");
+        // Define the log directory path within the temp base directory
+        let log_dir_path = temp_base_dir.path().join("test_log_files");
 
-        let expected_log_dir = get_expected_log_dir(&temp_data_home);
-        println!("Expected log directory: {}", expected_log_dir.display());
+        println!("Test log directory: {}", log_dir_path.display());
         // Matches the pattern set in init: {prefix}.{suffix}
-        let expected_log_file = expected_log_dir.join(format!("{APP_NAME}.log"));
-
+        let expected_log_file = log_dir_path.join(format!("{APP_NAME}.log"));
+    
         println!("Expected log file path: {}", expected_log_file.display());
         // Ensure clean state
-        if expected_log_dir.exists() {
+        if log_dir_path.exists() {
             println!(
                 "Cleaning up pre-existing log directory: {}",
-                expected_log_dir.display()
+                log_dir_path.display()
             );
-            fs::remove_dir_all(&expected_log_dir)
+            fs::remove_dir_all(&log_dir_path)
                 .expect("Failed to clean up pre-existing test log dir");
         }
         // create the directory
-        fs::create_dir_all(&expected_log_dir).expect("Failed to create test log dir");
+        // fs::create_dir_all(&log_dir_path).expect("Failed to create test log dir"); // init_tracing will do this
         // create the file
-        fs::File::create(&expected_log_file).expect("Failed to create test log file");
+        // fs::File::create(&expected_log_file).expect("Failed to create test log file"); // Not needed, appender creates it
         // write debug message to the file
-        fs::write(
-            &expected_log_file,
-            "This is a test log file for tmux-sessionizer.",
-        )
-        .expect("Failed to write to test log file");
-
+        // fs::write(
+        //     &expected_log_file,
+        //     "This is a test log file for tmux-sessionizer.",
+        // )
+        // .expect("Failed to write to test log file"); // Not needed
+    
         // Initialize logging using init_tracing
         let (worker_guard, subscriber_guard) =
-            init_tracing("info").expect("Logger initialization failed");
-
+            init_tracing(&log_dir_path, "info").expect("Logger initialization failed");
+    
         tracing::info!("Test message for log file creation.");
-
+    
         drop(subscriber_guard);
         drop(worker_guard);
         // read the contents of the temp directory
-        let temp_dir_content = fs::read_dir(temp_data_home.join(APP_NAME))
+        let temp_dir_content = fs::read_dir(&log_dir_path)
             .expect("Failed to read temp directory")
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
@@ -274,14 +246,9 @@ mod tests {
                 .join("\n")
         );
 
-        match original_xdg_data_home {
-            Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
-            None => unsafe { env::remove_var("XDG_DATA_HOME") },
-        }
-
         assert!(
-            expected_log_dir.exists(),
-            "Log directory should exist after init"
+            log_dir_path.exists(),
+            "Log directory '{}' should exist after init", log_dir_path.display()
         );
         assert!(
             expected_log_file.exists(),
@@ -306,9 +273,9 @@ mod tests {
         assert!(content.contains("initialized tracing. Log directory:"));
 
         // Clean up
-        fs::remove_dir_all(&expected_log_dir).expect("Failed to clean up test log dir");
+        // temp_base_dir will be cleaned up automatically
     }
-
+    
     #[test]
     #[serial] // Modifies environment variables and global tracing state
     fn test_debug_mode_level_setting() {
@@ -316,25 +283,21 @@ mod tests {
         unsafe {
             env::remove_var("RUST_LOG");
         } // Ensure RUST_LOG is not set to interfere
-        let temp_dir_debug = tempdir().expect("Failed temp dir for debug test");
-        let temp_data_home_debug = temp_dir_debug.path().to_path_buf();
-        let original_xdg_data_home = env::var_os("XDG_DATA_HOME");
-        unsafe {
-            env::set_var("XDG_DATA_HOME", &temp_data_home_debug);
-        }
+        let temp_base_dir_debug = tempdir().expect("Failed temp dir for debug test");
+        let log_dir_debug = temp_base_dir_debug.path().join("debug_logs");
 
         let (_w_guard_debug, s_guard_debug) =
-            init_tracing("debug").expect("Logger init failed for debug test");
+            init_tracing(&log_dir_debug, "debug").expect("Logger init failed for debug test");
         tracing::debug!("This debug message should be logged in debug mode.");
         drop(s_guard_debug);
         thread::sleep(Duration::from_millis(100));
 
         let log_file_debug =
-            get_expected_log_dir(&temp_data_home_debug).join(format!("{APP_NAME}.log"));
+            log_dir_debug.join(format!("{APP_NAME}.log"));
         let content_debug =
             fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
         assert!(
-            content_debug.contains("initialized tracing. Log directory:"),
+            content_debug.contains(&format!("initialized tracing. Log directory: {}", log_dir_debug.display())),
             "Log init message should be present"
         );
         // The filter string itself is "tmux_sessionizer=debug", not part of the log message from init_tracing
@@ -348,25 +311,22 @@ mod tests {
         unsafe {
             env::remove_var("RUST_LOG");
         } // Ensure RUST_LOG is not set
-        let temp_dir_info = tempdir().expect("Failed temp dir for info test");
-        let temp_data_home_info = temp_dir_info.path().to_path_buf();
-        unsafe {
-            env::set_var("XDG_DATA_HOME", &temp_data_home_info);
-        }
+        let temp_base_dir_info = tempdir().expect("Failed temp dir for info test");
+        let log_dir_info = temp_base_dir_info.path().join("info_logs");
 
         let (_w_guard_info, s_guard_info) =
-            init_tracing("info").expect("Logger init failed for info test");
+            init_tracing(&log_dir_info, "info").expect("Logger init failed for info test");
         tracing::debug!("This debug message should NOT be logged in info mode.");
         tracing::info!("This info message should be logged in info mode.");
         drop(s_guard_info);
         thread::sleep(Duration::from_millis(100));
 
         let log_file_info =
-            get_expected_log_dir(&temp_data_home_info).join(format!("{APP_NAME}.log"));
+            log_dir_info.join(format!("{APP_NAME}.log"));
         let content_info =
             fs::read_to_string(&log_file_info).expect("Failed to read info log file");
         assert!(
-            content_info.contains("initialized tracing. Log directory:"),
+            content_info.contains(&format!("initialized tracing. Log directory: {}", log_dir_info.display())),
             "Log init message should be present"
         );
         assert!(
@@ -378,14 +338,8 @@ mod tests {
             "Debug message unexpectedly present in info mode"
         );
 
-        match original_xdg_data_home {
-            Some(val) => unsafe { env::set_var("XDG_DATA_HOME", val) },
-            None => unsafe { env::remove_var("XDG_DATA_HOME") },
-        }
-
         // Clean up
-        fs::remove_dir_all(get_expected_log_dir(&temp_data_home_debug)).ok();
-        fs::remove_dir_all(get_expected_log_dir(&temp_data_home_info)).ok();
+        // temp_base_dir_debug and temp_base_dir_info will be cleaned up automatically
     }
 
     // Note on Rotation Testing:
