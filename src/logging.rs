@@ -226,10 +226,31 @@ mod tests {
             .filter_map(Result::ok)
             .collect();
 
-        assert_eq!(entries.len(), 1, "Expected a single log file in the directory. Found: {:?}", entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+        assert_eq!(
+            entries.len(),
+            1,
+            "Expected a single log file in the directory. Found: {:?}",
+            entries.iter().map(|e| e.path()).collect::<Vec<_>>()
+        );
         let log_file_path = entries[0].path();
-        assert!(log_file_path.file_name().unwrap_or_default().to_str().unwrap_or_default().starts_with(APP_NAME), "Log file name should start with APP_NAME");
-        assert!(log_file_path.file_name().unwrap_or_default().to_str().unwrap_or_default().ends_with(".log"), "Log file name should end with .log");
+        assert!(
+            log_file_path
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .starts_with(APP_NAME),
+            "Log file name should start with APP_NAME"
+        );
+        assert!(
+            log_file_path
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .ends_with(".log"),
+            "Log file name should end with .log"
+        );
         println!("Actual log file path: {}", log_file_path.display());
 
         // read the contents of the temp directory
@@ -268,8 +289,7 @@ mod tests {
             log_file_path.exists(),
             "Log file '{}' should exist after init and logging. Content: {:?}",
             log_file_path.display(),
-            fs::read_to_string(&log_file_path)
-                .unwrap_or_else(|_| "Error reading file".to_string())
+            fs::read_to_string(&log_file_path).unwrap_or_else(|_| "Error reading file".to_string())
         );
         assert!(
             log_file_path.is_file(),
@@ -311,10 +331,29 @@ mod tests {
             .expect("Failed to read debug log directory")
             .filter_map(Result::ok)
             .collect();
-        assert_eq!(debug_entries.len(), 1, "Expected one log file in debug_logs. Found: {:?}", debug_entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+        assert_eq!(
+            debug_entries.len(),
+            1,
+            "Expected one log file in debug_logs. Found: {:?}",
+            debug_entries.iter().map(|e| e.path()).collect::<Vec<_>>()
+        );
         let log_file_debug = debug_entries[0].path();
-        assert!(log_file_debug.file_name().unwrap_or_default().to_str().unwrap_or_default().starts_with(APP_NAME));
-        assert!(log_file_debug.file_name().unwrap_or_default().to_str().unwrap_or_default().ends_with(".log"));
+        assert!(
+            log_file_debug
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .starts_with(APP_NAME)
+        );
+        assert!(
+            log_file_debug
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .ends_with(".log")
+        );
 
         let content_debug =
             fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
@@ -351,10 +390,29 @@ mod tests {
             .expect("Failed to read info log directory")
             .filter_map(Result::ok)
             .collect();
-        assert_eq!(info_entries.len(), 1, "Expected one log file in info_logs. Found: {:?}", info_entries.iter().map(|e| e.path()).collect::<Vec<_>>());
+        assert_eq!(
+            info_entries.len(),
+            1,
+            "Expected one log file in info_logs. Found: {:?}",
+            info_entries.iter().map(|e| e.path()).collect::<Vec<_>>()
+        );
         let log_file_info = info_entries[0].path();
-        assert!(log_file_info.file_name().unwrap_or_default().to_str().unwrap_or_default().starts_with(APP_NAME));
-        assert!(log_file_info.file_name().unwrap_or_default().to_str().unwrap_or_default().ends_with(".log"));
+        assert!(
+            log_file_info
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .starts_with(APP_NAME)
+        );
+        assert!(
+            log_file_info
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default()
+                .ends_with(".log")
+        );
 
         let content_info =
             fs::read_to_string(&log_file_info).expect("Failed to read info log file");
