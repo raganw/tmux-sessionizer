@@ -165,7 +165,7 @@ jobs:
       - name: Checkout homebrew tap
         uses: actions/checkout@v4
         with:
-          repository: your-username/homebrew-tap
+          repository: raganw/homebrew-tap
           token: ${{ secrets.TAP_REPO_TOKEN }}
           path: homebrew-tap
 
