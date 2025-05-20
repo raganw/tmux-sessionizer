@@ -183,6 +183,7 @@ jobs:
             version "${VERSION}"
             
             depends_on "tmux"
+            depends_on "openssl@3"
             
             def install
               bin.install "tmux-sessionizer"
