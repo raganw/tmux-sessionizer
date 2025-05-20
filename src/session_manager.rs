@@ -137,8 +137,8 @@ impl SessionManager {
     /// * `Err(AppError::Tmux)` if there was an issue communicating with tmux (e.g., permission errors), other than the server simply not running.
     pub fn session_exists(session_name: &str) -> Result<bool> {
         debug!("Checking if session '{}' exists.", session_name);
-        match Tmux::with_command(HasSession::new().target_session(session_name)) // Use with_command for clarity
-            .command(HasSession::new().target_session(session_name))
+        // create a string that is "={session_name}"
+        match Tmux::with_command(HasSession::new().target_session(format!("={session_name}")))
             .status()
         {
             Ok(status) => {
