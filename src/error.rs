@@ -32,6 +32,18 @@ pub enum ConfigError {
 
     #[error("Path validation failed: {0}")]
     InvalidPath(#[from] PathValidationError),
+
+    #[error("Failed to create config directory: {path}")]
+    DirectoryCreationFailed { path: PathBuf, source: io::Error },
+
+    #[error("Failed to write config template: {path}")]
+    TemplateWriteFailed { path: PathBuf, source: io::Error },
+
+    #[error("Config file validation failed: {path}")]
+    ValidationFailed {
+        path: PathBuf,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 #[derive(Debug, Error)]

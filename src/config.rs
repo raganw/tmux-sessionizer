@@ -116,6 +116,11 @@ pub(crate) struct CliArgs {
     /// Enable detailed debug logging.
     #[arg(short, long, action = clap::ArgAction::SetTrue, help = "Enable debug logging to stderr")]
     debug: bool,
+
+    /// Initialize configuration directory and create template config file.
+    #[arg(long, action = clap::ArgAction::SetTrue, help = "Initialize configuration directory and create template config file")]
+    init: bool,
+
     /// Directly select a path or name, skipping the fuzzy finder.
     #[arg(
         index = 1,
@@ -179,6 +184,39 @@ impl Default for Config {
 }
 
 impl Config {
+    /// Checks if the --init flag was provided and handles initialization if so.
+    /// Returns Ok(true) if initialization was performed, Ok(false) if normal operation should continue.
+    pub fn handle_init_if_requested() -> Result<bool, ConfigError> {
+        let cli_args = CliArgs::parse();
+
+        if cli_args.init {
+            // Handle initialization
+            use crate::config_init::ConfigInitializer;
+            let initializer = ConfigInitializer::new()?;
+            let file_was_created = initializer.init_config()?;
+
+            // Print success message based on whether file was created or already existed
+            if file_was_created {
+                println!("Configuration initialized successfully!");
+                println!(
+                    "Config file created at: {}",
+                    initializer.config_file().display()
+                );
+            } else {
+                println!("Configuration directory verified successfully!");
+                println!(
+                    "Config file already exists at: {}",
+                    initializer.config_file().display()
+                );
+                println!("No changes were made to existing files.");
+            }
+
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     /// Creates a new `Config` instance by loading from file (if exists),
     /// parsing command-line arguments, and merging them.
     /// Also performs validation.

@@ -26,6 +26,7 @@ fn test_default_config_values() {
 fn test_build_with_cli_only_no_file_config() {
     let cli_args = CliArgs {
         debug: true,
+        init: false,
         direct_selection: Some("my_project_cli".to_string()),
     };
     // Pass None for file_config
@@ -60,6 +61,7 @@ fn test_build_with_file_config_overrides_defaults_no_cli_override() {
     let cli_args = CliArgs {
         // CLI args that don't override file config for these fields
         debug: false,
+        init: false,
         direct_selection: None,
     };
 
@@ -99,6 +101,7 @@ fn test_build_cli_overrides_file_config_and_defaults() {
     };
     let cli_args = CliArgs {
         debug: true, // CLI overrides default false and any file setting (if file had debug)
+        init: false,
         direct_selection: Some("cli_selected_project".to_string()), // CLI overrides default None and file
     };
     // Note: Current CliArgs doesn't have fields for paths/patterns.
@@ -135,6 +138,7 @@ fn test_build_invalid_regex_in_file_config_returns_error() {
     };
     let cli_args = CliArgs {
         debug: false,
+        init: false,
         direct_selection: None,
     };
 
@@ -153,6 +157,7 @@ fn test_build_empty_file_config_uses_defaults_and_cli() {
     let empty_file_config = FileConfig::default(); // All fields are Option<Vec<String>>, so default is all None
     let cli_args = CliArgs {
         debug: true,
+        init: false,
         direct_selection: Some("cli_only_project".to_string()),
     };
 
@@ -188,6 +193,7 @@ fn test_build_empty_file_config_uses_defaults_and_cli() {
 
 // --- Tests for load_config_file (requires filesystem interaction) ---
 
+use std::env;
 use std::fs::{self, File};
 use std::io::Write;
 use tempfile::tempdir;
@@ -481,6 +487,7 @@ fn test_build_log_directory_determination_with_xdg_data_home_env_var() {
 
     let cli_args = CliArgs {
         debug: false,
+        init: false,
         direct_selection: None,
     };
     let config_result = Config::build(None, cli_args);
@@ -500,6 +507,71 @@ fn test_build_log_directory_determination_with_xdg_data_home_env_var() {
         "Log directory should respect XDG_DATA_HOME environment variable"
     );
     // Temp dir will be cleaned up automatically
+}
+
+#[test]
+fn test_cli_args_init_flag_parsing() {
+    // Test that --init flag is parsed correctly
+    let args = vec!["tmux-sessionizer", "--init"];
+    let cli_args = CliArgs::parse_from(args);
+    assert!(cli_args.init);
+    assert!(!cli_args.debug);
+    assert_eq!(cli_args.direct_selection, None);
+
+    // Test --init with --debug
+    let args = vec!["tmux-sessionizer", "--init", "--debug"];
+    let cli_args = CliArgs::parse_from(args);
+    assert!(cli_args.init);
+    assert!(cli_args.debug);
+    assert_eq!(cli_args.direct_selection, None);
+
+    // Test --init with debug in different order
+    let args = vec!["tmux-sessionizer", "--debug", "--init"];
+    let cli_args = CliArgs::parse_from(args);
+    assert!(cli_args.init);
+    assert!(cli_args.debug);
+    assert_eq!(cli_args.direct_selection, None);
+
+    // Test default values when --init is not provided
+    let args = vec!["tmux-sessionizer"];
+    let cli_args = CliArgs::parse_from(args);
+    assert!(!cli_args.init);
+    assert!(!cli_args.debug);
+    assert_eq!(cli_args.direct_selection, None);
+}
+
+#[test]
+fn test_init_command_integration() {
+    // This test verifies that when --init is provided, the application should
+    // handle initialization instead of normal operation
+    let temp_dir = tempdir().unwrap();
+    let original_xdg_config_home = env::var_os("XDG_CONFIG_HOME");
+
+    // Set XDG_CONFIG_HOME to our temp directory
+    unsafe {
+        env::set_var("XDG_CONFIG_HOME", temp_dir.path());
+    }
+
+    // Test CLI args parsing with --init
+    let args = vec!["tmux-sessionizer", "--init"];
+    let cli_args = CliArgs::parse_from(args);
+    assert!(cli_args.init);
+
+    // Restore original XDG_CONFIG_HOME
+    if let Some(val) = original_xdg_config_home {
+        unsafe {
+            env::set_var("XDG_CONFIG_HOME", val);
+        }
+    } else {
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+    }
+
+    // At this point, the main application should detect the init flag and
+    // call the initialization logic instead of proceeding with normal operation
+    // This integration test verifies that the CLI parsing works correctly
+    // The actual integration with main.rs will be tested separately
 }
 
 #[test]

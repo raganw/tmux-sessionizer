@@ -6,6 +6,7 @@
 //! to the corresponding tmux session.
 
 mod config;
+mod config_init;
 mod container_detector;
 mod directory_scanner;
 mod error;
@@ -43,7 +44,13 @@ use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem};
 ///
 /// * `Result<()>` - Returns `Ok(())` on successful execution, or an `AppError` if any step fails.
 fn main() -> Result<()> {
-    // 1. Parse command-line arguments, load config file, and create a Config instance
+    // 1. Check if --init flag was provided and handle initialization
+    if Config::handle_init_if_requested()? {
+        // Initialization was performed, exit early
+        return Ok(());
+    }
+
+    // 2. Parse command-line arguments, load config file, and create a Config instance
     let config = Config::new()?;
 
     // Initialize global logging. The guard must stay in scope.
@@ -58,7 +65,7 @@ fn main() -> Result<()> {
         tracing::debug!("Loaded configuration: {:?}", config);
     }
 
-    // 2. Create a DirectoryScanner instance and scan directories
+    // 3. Create a DirectoryScanner instance and scan directories
     let scanner = DirectoryScanner::new(&config);
     tracing::info!("Starting directory scan via main...");
     let scanned_entries = scanner.scan();
@@ -67,10 +74,10 @@ fn main() -> Result<()> {
         scanned_entries.len()
     );
 
-    // 3. Initialize FuzzyFinder
+    // 4. Initialize FuzzyFinder
     let selection_result: Result<Option<SelectedItem>>;
 
-    // 4. Perform selection (direct or fuzzy)
+    // 5. Perform selection (direct or fuzzy)
     if let Some(direct_selection_target) = &config.direct_selection {
         tracing::info!(target = %direct_selection_target, "Attempting direct selection.");
         selection_result = FuzzyFinder::direct_select(&scanned_entries, direct_selection_target);
@@ -83,7 +90,7 @@ fn main() -> Result<()> {
         selection_result = FuzzyFinder::select(&scanned_entries); // Pass as a slice reference
     }
 
-    // 5. Handle the selection outcome
+    // 6. Handle the selection outcome
     let selected_item_option = selection_result?; // Propagate errors from selection process
 
     if let Some(selected_item) = selected_item_option {
