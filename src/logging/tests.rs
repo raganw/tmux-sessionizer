@@ -120,7 +120,10 @@ fn test_log_file_creation() {
         entries.len(),
         1,
         "Expected a single log file in the directory. Found: {:?}",
-        entries.iter().map(|e| e.path()).collect::<Vec<_>>()
+        entries
+            .iter()
+            .map(std::fs::DirEntry::path)
+            .collect::<Vec<_>>()
     );
     let log_file_path = entries[0].path();
     assert!(
@@ -146,7 +149,7 @@ fn test_log_file_creation() {
     // read the contents of the temp directory
     let temp_dir_content = fs::read_dir(&log_dir_path)
         .expect("Failed to read temp directory")
-        .filter_map(|entry| entry.ok())
+        .filter_map(std::result::Result::ok)
         .map(|entry| entry.path())
         .collect::<Vec<_>>();
     println!(
@@ -225,7 +228,10 @@ fn test_debug_mode_level_setting() {
         debug_entries.len(),
         1,
         "Expected one log file in debug_logs. Found: {:?}",
-        debug_entries.iter().map(|e| e.path()).collect::<Vec<_>>()
+        debug_entries
+            .iter()
+            .map(std::fs::DirEntry::path)
+            .collect::<Vec<_>>()
     );
     let log_file_debug = debug_entries[0].path();
     assert!(
@@ -283,7 +289,10 @@ fn test_debug_mode_level_setting() {
         info_entries.len(),
         1,
         "Expected one log file in info_logs. Found: {:?}",
-        info_entries.iter().map(|e| e.path()).collect::<Vec<_>>()
+        info_entries
+            .iter()
+            .map(std::fs::DirEntry::path)
+            .collect::<Vec<_>>()
     );
     let log_file_info = info_entries[0].path();
     assert!(

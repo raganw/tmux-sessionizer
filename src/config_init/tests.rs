@@ -173,7 +173,7 @@ fn test_validate_created_file_not_found() {
         ConfigError::ValidationFailed { path, .. } => {
             assert!(path.ends_with("tmux-sessionizer.toml"));
         }
-        other => panic!("Expected ValidationFailed error, got {:?}", other),
+        other => panic!("Expected ValidationFailed error, got {other:?}"),
     }
 }
 
@@ -200,7 +200,7 @@ fn test_generate_template_content() {
             || trimmed.starts_with("additional_paths")
             || trimmed.starts_with("exclude_patterns")
         {
-            panic!("Found uncommented configuration line: {}", line);
+            panic!("Found uncommented configuration line: {line}");
         }
     }
 }
@@ -256,20 +256,20 @@ fn test_init_config_when_file_already_exists() {
     let temp_dir = tempdir().unwrap();
     let config_dir = temp_dir.path().join("tmux-sessionizer");
     let config_file = config_dir.join("tmux-sessionizer.toml");
-    
+
     // Create the directory and file beforehand
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(&config_file, "existing config content").unwrap();
-    
+
     let initializer = ConfigInitializer {
         config_dir: config_dir.clone(),
         config_file: config_file.clone(),
     };
-    
+
     // Run initialization - should not overwrite existing file
     let file_was_created = initializer.init_config().unwrap();
     assert!(!file_was_created); // Should be false since file already existed
-    
+
     // File should still exist with original content
     assert!(config_file.exists());
     let content = fs::read_to_string(&config_file).unwrap();
@@ -311,7 +311,7 @@ fn test_create_config_directory_permission_denied() {
                     | io::ErrorKind::Other // Some systems may return Other for this case
             ));
         }
-        other => panic!("Expected DirectoryCreationFailed error, got {:?}", other),
+        other => panic!("Expected DirectoryCreationFailed error, got {other:?}"),
     }
 }
 
@@ -341,7 +341,7 @@ fn test_create_template_file_permission_denied() {
         ConfigError::TemplateWriteFailed { path, .. } => {
             assert_eq!(path, impossible_config_file);
         }
-        other => panic!("Expected TemplateWriteFailed error, got {:?}", other),
+        other => panic!("Expected TemplateWriteFailed error, got {other:?}"),
     }
 }
 
@@ -367,7 +367,7 @@ fn test_validate_created_file_path_is_directory() {
         ConfigError::ValidationFailed { path, .. } => {
             assert_eq!(path, fake_file_path);
         }
-        other => panic!("Expected ValidationFailed error, got {:?}", other),
+        other => panic!("Expected ValidationFailed error, got {other:?}"),
     }
 }
 
@@ -406,7 +406,7 @@ fn test_config_initializer_new_xdg_error() {
             ConfigError::CannotDetermineConfigDir => {
                 // This is the expected error
             }
-            other => panic!("Expected CannotDetermineConfigDir error, got {:?}", other),
+            other => panic!("Expected CannotDetermineConfigDir error, got {other:?}"),
         }
     }
     // If it succeeds, that's fine too - the system has fallbacks

@@ -613,10 +613,7 @@ fn test_config_new_propagates_xdg_error_for_log_dir() {
                 // If it failed for another reason (e.g. path validation on an empty path if HOME was needed for default search paths)
                 // this test might not be robust.
                 // For now, we're primarily testing the log_directory part.
-                println!(
-                    "Config::build failed with an unexpected error: {:?}",
-                    other_err
-                );
+                println!("Config::build failed with an unexpected error: {other_err:?}");
             }
         }
     } else {

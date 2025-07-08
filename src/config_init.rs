@@ -35,7 +35,12 @@ impl ConfigInitializer {
     }
 
     fn create_config_directory(&self) -> Result<(), ConfigError> {
-        if !self.config_dir.exists() {
+        if self.config_dir.exists() {
+            debug!(
+                "Config directory already exists: {}",
+                self.config_dir.display()
+            );
+        } else {
             debug!("Creating config directory: {}", self.config_dir.display());
             fs::create_dir_all(&self.config_dir).map_err(|e| {
                 ConfigError::DirectoryCreationFailed {
@@ -44,11 +49,6 @@ impl ConfigInitializer {
                 }
             })?;
             info!("Created config directory: {}", self.config_dir.display());
-        } else {
-            debug!(
-                "Config directory already exists: {}",
-                self.config_dir.display()
-            );
         }
         Ok(())
     }
