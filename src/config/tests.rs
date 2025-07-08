@@ -230,9 +230,9 @@ fn setup_temp_config_dir(
 // Test version of load_config_file that takes the base config dir path
 // Mirrors the logic of the real load_config_file but uses the provided path
 fn load_config_from_dir(
-    base_config_dir: &PathBuf,
+    base_config_dir: &Path,
 ) -> std::result::Result<Option<FileConfig>, ConfigError> {
-    let mut config_path = base_config_dir.clone();
+    let mut config_path = base_config_dir.to_path_buf();
     config_path.push("tmux-sessionizer"); // Application-specific subdirectory
     config_path.push("tmux-sessionizer.toml"); // The config file itself
 

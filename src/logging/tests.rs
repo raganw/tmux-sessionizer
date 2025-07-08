@@ -136,12 +136,13 @@ fn test_log_file_creation() {
         "Log file name should start with APP_NAME"
     );
     assert!(
-        log_file_path
-            .file_name()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default()
-            .ends_with(".log"),
+        std::path::Path::new(log_file_path
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default())
+                                    .extension()
+                                    .map_or(false, |ext| ext.eq_ignore_ascii_case("log")),
         "Log file name should end with .log"
     );
     println!("Actual log file path: {}", log_file_path.display());
@@ -243,12 +244,13 @@ fn test_debug_mode_level_setting() {
             .starts_with(APP_NAME)
     );
     assert!(
-        log_file_debug
-            .file_name()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default()
-            .ends_with(".log")
+        std::path::Path::new(log_file_debug
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default())
+                                    .extension()
+                                    .map_or(false, |ext| ext.eq_ignore_ascii_case("log"))
     );
 
     let content_debug = fs::read_to_string(&log_file_debug).expect("Failed to read debug log file");
@@ -304,12 +306,13 @@ fn test_debug_mode_level_setting() {
             .starts_with(APP_NAME)
     );
     assert!(
-        log_file_info
-            .file_name()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or_default()
-            .ends_with(".log")
+        std::path::Path::new(log_file_info
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default())
+                                    .extension()
+                                    .map_or(false, |ext| ext.eq_ignore_ascii_case("log"))
     );
 
     let content_info = fs::read_to_string(&log_file_info).expect("Failed to read info log file");
