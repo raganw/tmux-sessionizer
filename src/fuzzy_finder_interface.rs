@@ -29,6 +29,27 @@ pub struct SelectedItem {
     pub path: PathBuf,
 }
 
+/// Represents a request to create a new project.
+///
+/// This is used when the user selects a new project to be created rather than
+/// selecting an existing directory.
+#[derive(Debug, Clone)]
+pub struct NewProjectRequest {
+    /// The name of the new project to create.
+    pub project_name: String,
+    /// The path where the new project directory should be created.
+    pub parent_path: PathBuf,
+}
+
+/// Represents the result of a user's selection from the fuzzy finder.
+#[derive(Debug, Clone)]
+pub enum SelectionResult {
+    /// User selected an existing directory/project.
+    ExistingProject(SelectedItem),
+    /// User requested to create a new project.
+    NewProject(NewProjectRequest),
+}
+
 /// Provides methods for interacting with the user to select a directory.
 ///
 /// This includes presenting a list of directories via a fuzzy finder (`skim`)
@@ -75,18 +96,20 @@ impl FuzzyFinder {
             .join("\n")
     }
 
-    /// Runs the `skim` fuzzy finder to allow the user to select a directory entry.
+    /// Runs the `skim` fuzzy finder to allow the user to select a directory entry or create a new project.
     ///
     /// Takes a slice of `DirectoryEntry` items, prepares the input for `skim`,
     /// runs the `skim` interface, and processes the user's selection.
+    /// Additionally supports creating new projects when the user types a name starting with "+".
     ///
     /// # Arguments
     ///
     /// * `entries` - A slice of `DirectoryEntry` items to present to the user.
+    /// * `default_new_project_path` - The default path where new projects should be created.
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(SelectedItem))` containing the details of the user's selection.
+    /// * `Ok(Some(SelectionResult))` containing the details of the user's selection or new project request.
     /// * `Ok(None)` if the user cancelled the selection (e.g., pressed ESC) or if no entries were provided.
     /// * `Err(AppError::Finder)` if there was an error running `skim` or parsing its output.
     ///
@@ -95,35 +118,30 @@ impl FuzzyFinder {
     /// Returns `AppError::Finder` if:
     /// - `skim` options fail to build.
     /// - `skim` execution itself fails.
-    /// - The selected line from `skim` cannot be parsed into the expected format (`display_name\tpath`).
-    pub fn select(entries: &[DirectoryEntry]) -> Result<Option<SelectedItem>> {
+    /// - The selected line from `skim` cannot be parsed into the expected format.
+    pub fn select_with_new_project_option(
+        entries: &[DirectoryEntry],
+        default_new_project_path: &std::path::Path,
+    ) -> Result<Option<SelectionResult>> {
         if entries.is_empty() {
             debug!("No entries provided to fuzzy finder, returning None.");
             return Ok(None);
         }
 
-        let skim_input = Self::prepare_skim_input(entries); // Pass slice directly
-        debug!("Skim input prepared with {} entries.", entries.len());
-        if skim_input.is_empty() && !entries.is_empty() {
-            // This case might happen if all entries somehow format to empty strings,
-            // though format_directory_entry_for_skim should prevent this.
-            // Or if entries are not empty but prepare_skim_input results in an empty string.
-            debug!("Skim input is empty despite non-empty entries. Returning None.");
-            return Ok(None);
-        }
-        if skim_input.is_empty() && entries.is_empty() {
-            // Already handled by the first check, but being explicit.
-            return Ok(None);
-        }
+        // Add a special entry for creating new projects
+        let mut skim_input = "+ Create New Project...\t<NEW_PROJECT>\n".to_string();
+        skim_input.push_str(&Self::prepare_skim_input(entries));
+
+        debug!(
+            "Skim input prepared with {} entries plus new project option.",
+            entries.len()
+        );
 
         // Configure Skim options
         let options = SkimOptionsBuilder::default()
             .height("100%".to_string())
             .multi(false) // Single selection mode
-            .prompt("Select project: ".to_string())
-            // .header(Some("Choose a directory:")) // Alternative to prompt
-            // .preview(Some("")) // Enable preview window, command can be set
-            // .delimiter(Some("\t")) // If Skim needs to parse fields internally
+            .prompt("Select project (or + to create new): ".to_string())
             .build()
             .map_err(|e| AppError::Finder(format!("Failed to build Skim options: {e}")))?;
 
@@ -132,12 +150,9 @@ impl FuzzyFinder {
         let items = item_reader.of_bufread(Cursor::new(skim_input));
 
         // Run Skim and process the output
-        // Skim::run_with returns Option<SkimOutput>
         let skim_output = Skim::run_with(&options, Some(items)).ok_or_else(|| {
             AppError::Finder("Skim execution failed or was cancelled by user initially".to_string())
         })?;
-        // If Skim::run_with returns None, it means skim was aborted (e.g. ESC) before selection loop started.
-        // If it returns Some(output), then output.is_abort indicates if ESC was pressed during selection.
 
         if skim_output.is_abort {
             debug!("Skim selection aborted by user (e.g., ESC pressed).");
@@ -147,8 +162,6 @@ impl FuzzyFinder {
         let selected_items = skim_output.selected_items;
 
         if selected_items.is_empty() {
-            // This can happen if the user exits Skim without making a selection
-            // (e.g., Ctrl-C, or if is_abort was false but nothing was selected).
             debug!("No items selected in Skim.");
             return Ok(None);
         }
@@ -163,9 +176,14 @@ impl FuzzyFinder {
         let selected_line = selected_skim_item.output().to_string();
         debug!("Skim selected line: '{}'", selected_line);
 
+        // Check if user wants to create a new project
+        if selected_line.starts_with("+ Create New Project") {
+            // Prompt user for project name
+            return Self::handle_new_project_creation(default_new_project_path);
+        }
+
         // Parse the selected line (format: "display_name\tresolved_path")
-        // The `output()` method on SkimItem already gives the full line that was fed to Skim.
-        let parts: Vec<&str> = selected_line.splitn(2, '\t').collect(); // Split only on the first tab
+        let parts: Vec<&str> = selected_line.splitn(2, '\t').collect();
         if parts.len() == 2 {
             let display_name = parts[0].to_string();
             let path_str = parts[1];
@@ -176,12 +194,50 @@ impl FuzzyFinder {
                 display_name,
                 path.display()
             );
-            Ok(Some(SelectedItem { display_name, path }))
+            Ok(Some(SelectionResult::ExistingProject(SelectedItem {
+                display_name,
+                path,
+            })))
         } else {
             Err(AppError::Finder(format!(
                 "Selected line from Skim has unexpected format (expected 'display\\tpath'): '{selected_line}'"
             )))
         }
+    }
+
+    fn handle_new_project_creation(
+        default_new_project_path: &std::path::Path,
+    ) -> Result<Option<SelectionResult>> {
+        use std::io::{self, Write};
+
+        print!("Enter new project name: ");
+        io::stdout()
+            .flush()
+            .map_err(|e| AppError::Finder(format!("Failed to flush stdout: {e}")))?;
+
+        let mut input = String::new();
+        io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| AppError::Finder(format!("Failed to read from stdin: {e}")))?;
+
+        let project_name = input.trim();
+        if project_name.is_empty() {
+            debug!("Empty project name provided, cancelling creation");
+            return Ok(None);
+        }
+
+        // Validate project name (basic validation)
+        if project_name.contains('/') || project_name.contains('\\') {
+            return Err(AppError::Finder(
+                "Project name cannot contain path separators".to_string(),
+            ));
+        }
+
+        debug!("User requested to create new project: '{}'", project_name);
+        Ok(Some(SelectionResult::NewProject(NewProjectRequest {
+            project_name: project_name.to_string(),
+            parent_path: default_new_project_path.to_path_buf(),
+        })))
     }
 
     /// Attempts to find a unique `DirectoryEntry` based on a user-provided search string,

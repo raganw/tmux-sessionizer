@@ -22,6 +22,19 @@
 # search_paths = ["/path/to/my/projects"]
 
 
+# --- Default New Project Path ---
+#
+# `default_new_project_path` specifies where new projects should be created when using the
+# "create new project" feature from the fuzzy finder interface. This path will be expanded
+# if it starts with '~'. Defaults to ~/dev if not specified.
+#
+# Example: Create new projects in ~/projects
+# default_new_project_path = "~/projects"
+#
+# Example: Create new projects in a specific directory
+# default_new_project_path = "/path/to/my/projects"
+
+
 # --- Additional Paths ---
 #
 # `additional_paths` allows specifying extra directories to include in the scan.
