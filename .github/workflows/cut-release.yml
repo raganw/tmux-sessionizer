@@ -1,0 +1,130 @@
+name: Cut Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      custom_version:
+        description: 'Custom version (optional, overrides version_bump_type if provided)'
+        required: false
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cut-release:
+    name: Cut Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit
+
+      - name: Get current version
+        id: current_version
+        run: |
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Calculate new version
+        id: new_version
+        run: |
+          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
+            NEW_VERSION="${{ github.event.inputs.custom_version }}"
+            echo "Using custom version: $NEW_VERSION"
+          else
+            CURRENT_VERSION="${{ steps.current_version.outputs.current_version }}"
+            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+            
+            case "${{ github.event.inputs.version_bump_type }}" in
+              "major")
+                NEW_VERSION="$((major + 1)).0.0"
+                ;;
+              "minor")
+                NEW_VERSION="$major.$((minor + 1)).0"
+                ;;
+              "patch")
+                NEW_VERSION="$major.$minor.$((patch + 1))"
+                ;;
+              *)
+                echo "Invalid version bump type"
+                exit 1
+                ;;
+            esac
+            echo "Calculated new version: $NEW_VERSION"
+          fi
+          
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version in Cargo.toml
+        run: |
+          cargo set-version ${{ steps.new_version.outputs.new_version }}
+          echo "Updated Cargo.toml version to ${{ steps.new_version.outputs.new_version }}"
+
+      - name: Verify version update
+        run: |
+          NEW_VERSION_FROM_CARGO=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          if [ "$NEW_VERSION_FROM_CARGO" != "${{ steps.new_version.outputs.new_version }}" ]; then
+            echo "Error: Version mismatch after update"
+            echo "Expected: ${{ steps.new_version.outputs.new_version }}"
+            echo "Found: $NEW_VERSION_FROM_CARGO"
+            exit 1
+          fi
+          echo "Version successfully updated to $NEW_VERSION_FROM_CARGO"
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit version bump
+        run: |
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: bump version to v${{ steps.new_version.outputs.new_version }}"
+          echo "Committed version bump"
+
+      - name: Create tag
+        run: |
+          git tag -a "v${{ steps.new_version.outputs.new_version }}" -m "Release v${{ steps.new_version.outputs.new_version }}"
+          echo "Created tag v${{ steps.new_version.outputs.new_version }}"
+
+      - name: Push changes
+        run: |
+          git push origin main
+          git push origin "v${{ steps.new_version.outputs.new_version }}"
+          echo "Pushed commit and tag to origin"
+
+      - name: Summary
+        run: |
+          echo "✅ Successfully cut release v${{ steps.new_version.outputs.new_version }}"
+          echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
+          echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
+          echo "🏷️  Tag: v${{ steps.new_version.outputs.new_version }}"
+          echo ""
+          echo "The release workflow should now be triggered automatically."
+          echo "Check the Actions tab to monitor the release build progress."
