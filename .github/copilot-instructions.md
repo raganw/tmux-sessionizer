@@ -2,6 +2,11 @@
 
 **Always reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.**
 
+## Pull Request Format
+
+- Do not include the copilot tips section in PR descriptions
+- Use semantic commit naming conventions for PR titles
+
 ## Working Effectively
 
 Bootstrap, build, and test the repository:
