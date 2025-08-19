@@ -104,7 +104,7 @@ jobs:
 
       - name: Commit version bump
         run: |
-          git add Cargo.toml
+          git add Cargo.toml Cargo.lock
           git commit -m "chore: bump version to v${{ steps.new_version.outputs.new_version }}"
           echo "Committed version bump"
 
