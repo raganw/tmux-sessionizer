@@ -181,6 +181,36 @@ Settings are applied in the following order, with later sources overriding earli
 - **Path Issues**: Ensure specified paths exist and are directories. Errors related to path validation will be logged.
 - **Permissions**: Make sure `tmux-sessionizer` has read permissions for the configuration file and execute/search permissions for the directories it needs to scan.
 
+## Releases
+
+This project uses automated release management through GitHub Actions:
+
+### Manual Release Process
+
+A "Cut Release" workflow allows maintainers to manually trigger version bumps and releases:
+
+1. Go to the **Actions** tab in the GitHub repository
+2. Select **Cut Release** workflow
+3. Click **Run workflow** 
+4. Choose the version bump type:
+   - **patch**: For bug fixes (e.g., 0.3.1 → 0.3.2)
+   - **minor**: For new features (e.g., 0.3.1 → 0.4.0)  
+   - **major**: For breaking changes (e.g., 0.3.1 → 1.0.0)
+   - **custom**: Specify an exact version number
+
+The workflow will:
+- Update the version in `Cargo.toml`
+- Commit the change with a conventional commit message
+- Create a git tag (e.g., `v0.3.2`)
+- Trigger the automated release build workflow
+
+### Automated Release Build
+
+When a version tag is pushed (via the Cut Release workflow or manually), the release workflow automatically:
+- Builds binaries for Linux (x86_64), macOS (x86_64 and ARM64)
+- Creates GitHub releases with downloadable assets
+- Updates the Homebrew tap formula
+
 ## Development Status
 
 This project is currently **in progress**. Core functionalities are being implemented.
