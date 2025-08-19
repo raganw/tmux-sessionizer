@@ -119,18 +119,24 @@ impl FuzzyFinder {
     /// - `skim` options fail to build.
     /// - `skim` execution itself fails.
     /// - The selected line from `skim` cannot be parsed into the expected format.
-    pub fn select_with_new_project_option(entries: &[DirectoryEntry], default_new_project_path: &std::path::Path) -> Result<Option<SelectionResult>> {
+    pub fn select_with_new_project_option(
+        entries: &[DirectoryEntry],
+        default_new_project_path: &std::path::Path,
+    ) -> Result<Option<SelectionResult>> {
         if entries.is_empty() {
             debug!("No entries provided to fuzzy finder, returning None.");
             return Ok(None);
         }
 
         // Add a special entry for creating new projects
-        let mut skim_input = format!("+ Create New Project...\t<NEW_PROJECT>\n");
+        let mut skim_input = "+ Create New Project...\t<NEW_PROJECT>\n".to_string();
         skim_input.push_str(&Self::prepare_skim_input(entries));
-        
-        debug!("Skim input prepared with {} entries plus new project option.", entries.len());
-        
+
+        debug!(
+            "Skim input prepared with {} entries plus new project option.",
+            entries.len()
+        );
+
         // Configure Skim options
         let options = SkimOptionsBuilder::default()
             .height("100%".to_string())
@@ -188,7 +194,10 @@ impl FuzzyFinder {
                 display_name,
                 path.display()
             );
-            Ok(Some(SelectionResult::ExistingProject(SelectedItem { display_name, path })))
+            Ok(Some(SelectionResult::ExistingProject(SelectedItem {
+                display_name,
+                path,
+            })))
         } else {
             Err(AppError::Finder(format!(
                 "Selected line from Skim has unexpected format (expected 'display\\tpath'): '{selected_line}'"
@@ -196,33 +205,21 @@ impl FuzzyFinder {
         }
     }
 
-    /// Legacy method for backward compatibility.
-    /// 
-    /// This method maintains the original interface but internally uses the new functionality
-    /// with a default new project path.
-    pub fn select(entries: &[DirectoryEntry]) -> Result<Option<SelectedItem>> {
-        // For backward compatibility, we use a default path and only return existing projects
-        let default_path = std::path::Path::new("~/dev"); // This won't be used since we filter out new projects
-        match Self::select_with_new_project_option(entries, default_path)? {
-            Some(SelectionResult::ExistingProject(item)) => Ok(Some(item)),
-            Some(SelectionResult::NewProject(_)) => {
-                // This shouldn't happen in the legacy interface, but just in case
-                debug!("New project creation not supported in legacy select method");
-                Ok(None)
-            }
-            None => Ok(None),
-        }
-    }
-
-    fn handle_new_project_creation(default_new_project_path: &std::path::Path) -> Result<Option<SelectionResult>> {
+    fn handle_new_project_creation(
+        default_new_project_path: &std::path::Path,
+    ) -> Result<Option<SelectionResult>> {
         use std::io::{self, Write};
 
         print!("Enter new project name: ");
-        io::stdout().flush().map_err(|e| AppError::Finder(format!("Failed to flush stdout: {e}")))?;
-        
+        io::stdout()
+            .flush()
+            .map_err(|e| AppError::Finder(format!("Failed to flush stdout: {e}")))?;
+
         let mut input = String::new();
-        io::stdin().read_line(&mut input).map_err(|e| AppError::Finder(format!("Failed to read from stdin: {e}")))?;
-        
+        io::stdin()
+            .read_line(&mut input)
+            .map_err(|e| AppError::Finder(format!("Failed to read from stdin: {e}")))?;
+
         let project_name = input.trim();
         if project_name.is_empty() {
             debug!("Empty project name provided, cancelling creation");
@@ -231,7 +228,9 @@ impl FuzzyFinder {
 
         // Validate project name (basic validation)
         if project_name.contains('/') || project_name.contains('\\') {
-            return Err(AppError::Finder("Project name cannot contain path separators".to_string()));
+            return Err(AppError::Finder(
+                "Project name cannot contain path separators".to_string(),
+            ));
         }
 
         debug!("User requested to create new project: '{}'", project_name);

@@ -97,7 +97,8 @@ fn test_create_new_project_directory_success() {
     let parent_path = temp_dir.path();
     let project_name = "test-project";
 
-    let selection = SessionManager::create_new_project_directory(project_name, parent_path).unwrap();
+    let selection =
+        SessionManager::create_new_project_directory(project_name, parent_path).unwrap();
 
     // Verify the directory was created
     let project_path = parent_path.join(project_name);
@@ -125,7 +126,7 @@ fn test_create_new_project_directory_already_exists() {
     // Attempt to create it again should fail
     let result = SessionManager::create_new_project_directory(project_name, parent_path);
     assert!(result.is_err());
-    
+
     match result.unwrap_err() {
         AppError::Session(msg) => {
             assert!(msg.contains("already exists"));
@@ -145,7 +146,8 @@ fn test_create_new_project_directory_creates_parent() {
     // Parent path doesn't exist
     assert!(!parent_path.exists());
 
-    let selection = SessionManager::create_new_project_directory(project_name, &parent_path).unwrap();
+    let selection =
+        SessionManager::create_new_project_directory(project_name, &parent_path).unwrap();
 
     // Verify both parent and project directories were created
     assert!(parent_path.exists());

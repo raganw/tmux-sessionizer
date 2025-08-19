@@ -342,7 +342,10 @@ impl SessionManager {
     /// # Errors
     ///
     /// Returns `AppError::Io` if the directory cannot be created or if there are permission issues.
-    pub fn create_new_project_directory(project_name: &str, parent_path: &Path) -> Result<Selection> {
+    pub fn create_new_project_directory(
+        project_name: &str,
+        parent_path: &Path,
+    ) -> Result<Selection> {
         debug!(
             "Creating new project directory '{}' in '{}'",
             project_name,
@@ -367,7 +370,7 @@ impl SessionManager {
         }
 
         let project_path = parent_path.join(project_name);
-        
+
         // Check if project already exists
         if project_path.exists() {
             return Err(AppError::Session(format!(
@@ -390,7 +393,10 @@ impl SessionManager {
             ))
         })?;
 
-        info!("Successfully created project directory: {}", project_path.display());
+        info!(
+            "Successfully created project directory: {}",
+            project_path.display()
+        );
 
         // Create a Selection for the new project
         let session_name = Self::generate_session_name(&project_path, None);
