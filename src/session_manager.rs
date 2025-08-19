@@ -2,12 +2,13 @@ use crate::directory_scanner::DirectoryEntry;
 use crate::error::{AppError, Result};
 use std::env;
 use std::ffi::OsStr;
+use std::fs;
 use std::path::{Path, PathBuf};
 use tmux_interface::{
     AttachSession, Error as TmuxInterfaceError, HasSession, ListSessions, NewSession, SwitchClient,
     Tmux,
 };
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 /// Provides methods for interacting with tmux sessions.
 ///
@@ -324,6 +325,82 @@ impl SessionManager {
             display_name: dir_entry.display_name.clone(),
             session_name,
         }
+    }
+
+    /// Creates a new project directory and returns a `Selection` for it.
+    ///
+    /// This creates a new directory with the given name in the specified parent path,
+    /// then creates a Selection struct that can be used to create a tmux session.
+    ///
+    /// # Arguments
+    ///
+    /// * `project_name` - The name of the new project directory to create.
+    /// * `parent_path` - The parent directory where the new project should be created.
+    ///
+    /// # Returns
+    ///
+    /// A `Selection` struct for the newly created project directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Io` if the directory cannot be created or if there are permission issues.
+    pub fn create_new_project_directory(project_name: &str, parent_path: &Path) -> Result<Selection> {
+        debug!(
+            "Creating new project directory '{}' in '{}'",
+            project_name,
+            parent_path.display()
+        );
+
+        // Ensure parent directory exists
+        if !parent_path.exists() {
+            info!("Creating parent directory: {}", parent_path.display());
+            fs::create_dir_all(parent_path).map_err(|e| {
+                error!(
+                    "Failed to create parent directory '{}': {}",
+                    parent_path.display(),
+                    e
+                );
+                AppError::Session(format!(
+                    "Failed to create parent directory '{}': {}",
+                    parent_path.display(),
+                    e
+                ))
+            })?;
+        }
+
+        let project_path = parent_path.join(project_name);
+        
+        // Check if project already exists
+        if project_path.exists() {
+            return Err(AppError::Session(format!(
+                "Project directory '{}' already exists",
+                project_path.display()
+            )));
+        }
+
+        // Create the project directory
+        fs::create_dir(&project_path).map_err(|e| {
+            error!(
+                "Failed to create project directory '{}': {}",
+                project_path.display(),
+                e
+            );
+            AppError::Session(format!(
+                "Failed to create project directory '{}': {}",
+                project_path.display(),
+                e
+            ))
+        })?;
+
+        info!("Successfully created project directory: {}", project_path.display());
+
+        // Create a Selection for the new project
+        let session_name = Self::generate_session_name(&project_path, None);
+        Ok(Selection {
+            path: project_path,
+            display_name: project_name.to_string(),
+            session_name,
+        })
     }
 }
 

@@ -236,3 +236,45 @@ fn test_direct_select_filename_match_ambiguous() {
     let result = FuzzyFinder::direct_select(&entries, "common_name");
     assert!(result.is_err());
 }
+
+#[test]
+fn test_new_project_request_creation() {
+    use crate::fuzzy_finder_interface::{NewProjectRequest, SelectionResult};
+    use std::path::PathBuf;
+
+    let request = NewProjectRequest {
+        project_name: "test-project".to_string(),
+        parent_path: PathBuf::from("/home/user/projects"),
+    };
+
+    let result = SelectionResult::NewProject(request.clone());
+    
+    match result {
+        SelectionResult::NewProject(req) => {
+            assert_eq!(req.project_name, "test-project");
+            assert_eq!(req.parent_path, PathBuf::from("/home/user/projects"));
+        }
+        _ => panic!("Expected NewProject variant"),
+    }
+}
+
+#[test] 
+fn test_selection_result_existing_project() {
+    use crate::fuzzy_finder_interface::{SelectedItem, SelectionResult};
+    use std::path::PathBuf;
+
+    let item = SelectedItem {
+        display_name: "existing-project".to_string(),
+        path: PathBuf::from("/path/to/existing"),
+    };
+
+    let result = SelectionResult::ExistingProject(item.clone());
+    
+    match result {
+        SelectionResult::ExistingProject(selected) => {
+            assert_eq!(selected.display_name, "existing-project");
+            assert_eq!(selected.path, PathBuf::from("/path/to/existing"));
+        }
+        _ => panic!("Expected ExistingProject variant"),
+    }
+}

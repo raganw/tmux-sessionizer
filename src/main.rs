@@ -19,7 +19,7 @@ mod session_manager;
 use crate::config::Config;
 use crate::directory_scanner::DirectoryScanner;
 use crate::error::Result;
-use crate::fuzzy_finder_interface::{FuzzyFinder, SelectedItem};
+use crate::fuzzy_finder_interface::{FuzzyFinder, SelectionResult};
 
 /// Sets up the global tracing subscriber.
 ///
@@ -75,89 +75,110 @@ fn main() -> Result<()> {
     );
 
     // 4. Initialize FuzzyFinder
-    let selection_result: Result<Option<SelectedItem>>;
+    let selection_result: Result<Option<SelectionResult>>;
 
     // 5. Perform selection (direct or fuzzy)
     if let Some(direct_selection_target) = &config.direct_selection {
         tracing::info!(target = %direct_selection_target, "Attempting direct selection.");
-        selection_result = FuzzyFinder::direct_select(&scanned_entries, direct_selection_target);
+        // For direct selection, we still use the old interface (only existing projects)
+        let direct_result = FuzzyFinder::direct_select(&scanned_entries, direct_selection_target)?;
+        selection_result = Ok(direct_result.map(SelectionResult::ExistingProject));
     } else {
         tracing::info!("No direct selection provided, launching fuzzy finder.");
         if scanned_entries.is_empty() {
-            tracing::info!("No scannable project directories found. Nothing to select.");
-            return Ok(());
+            tracing::info!("No scannable project directories found. Launching fuzzy finder with new project option only.");
         }
-        selection_result = FuzzyFinder::select(&scanned_entries); // Pass as a slice reference
+        selection_result = FuzzyFinder::select_with_new_project_option(&scanned_entries, &config.default_new_project_path);
     }
 
     // 6. Handle the selection outcome
-    let selected_item_option = selection_result?; // Propagate errors from selection process
+    let selection_option = selection_result?; // Propagate errors from selection process
 
-    if let Some(selected_item) = selected_item_option {
-        tracing::info!("Final Selection:");
-        tracing::info!("  Display Name: {}", selected_item.display_name);
-        tracing::info!("  Path: {}", selected_item.path.display());
+    if let Some(selection) = selection_option {
+        let sm_selection = match selection {
+            SelectionResult::ExistingProject(selected_item) => {
+                tracing::info!("Final Selection (Existing Project):");
+                tracing::info!("  Display Name: {}", selected_item.display_name);
+                tracing::info!("  Path: {}", selected_item.path.display());
 
-        let original_dir_entry_opt = scanned_entries.iter().find(|entry| {
-            entry.resolved_path == selected_item.path
-                && entry.display_name == selected_item.display_name
-        });
+                let original_dir_entry_opt = scanned_entries.iter().find(|entry| {
+                    entry.resolved_path == selected_item.path
+                        && entry.display_name == selected_item.display_name
+                });
 
-        if let Some(original_dir_entry) = original_dir_entry_opt {
-            let sm_selection =
-                session_manager::SessionManager::create_selection_from_directory_entry(
-                    original_dir_entry,
-                );
-
-            tracing::info!("  Session Name: {}", sm_selection.session_name);
-
-            match session_manager::SessionManager::is_tmux_server_running() {
-                Ok(true) => {
-                    tracing::info!("Tmux server is running.");
-                    match session_manager::SessionManager::session_exists(
-                        &sm_selection.session_name,
-                    ) {
-                        Ok(true) => {
-                            tracing::info!(session_name = %sm_selection.session_name, "Session exists. Switching/Attaching.");
-                            session_manager::SessionManager::switch_or_attach_to_session(
-                                &sm_selection.session_name,
-                            )?;
-                            tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to session.");
-                        }
-                        Ok(false) => {
-                            tracing::info!(session_name = %sm_selection.session_name, "Session does not exist. Creating new session.");
-                            session_manager::SessionManager::create_new_session(
-                                &sm_selection.session_name,
-                                &sm_selection.path,
-                            )?;
-                            tracing::info!(session_name = %sm_selection.session_name, "Successfully created session.");
-
-                            tracing::info!(session_name = %sm_selection.session_name, "Attempting to switch/attach to newly created session.");
-                            session_manager::SessionManager::switch_or_attach_to_session(
-                                &sm_selection.session_name,
-                            )?;
-                            tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to new session.");
-                        }
-                        Err(e) => {
-                            // Error checking session existence is distinct from action errors
-                            tracing::error!(session_name = %sm_selection.session_name, error = %e, "Error checking if session exists.");
-                        }
-                    }
-                }
-                Ok(false) => {
-                    tracing::warn!(session_name = %sm_selection.session_name, "Tmux server is not running. Cannot manage session.");
-                    tracing::info!("Please start tmux server to use session management features.");
-                }
-                Err(e) => {
-                    // Error checking server status
-                    tracing::error!(error = %e, "Error checking tmux server status.");
+                if let Some(original_dir_entry) = original_dir_entry_opt {
+                    session_manager::SessionManager::create_selection_from_directory_entry(
+                        original_dir_entry,
+                    )
+                } else {
+                    tracing::error!(
+                        "Could not find the original directory entry for the selection. This is unexpected."
+                    );
+                    tracing::error!(display_name = %selected_item.display_name, path = %selected_item.path.display(), "Selected item details for missing original entry");
+                    return Ok(()); // Exit early instead of continuing with invalid state
                 }
             }
-        } else {
-            tracing::error!(
-                "Could not find the original directory entry for the selection. This is unexpected."
-            );
-            tracing::error!(display_name = %selected_item.display_name, path = %selected_item.path.display(), "Selected item details for missing original entry");
+            SelectionResult::NewProject(new_project_request) => {
+                tracing::info!("Creating New Project:");
+                tracing::info!("  Project Name: {}", new_project_request.project_name);
+                tracing::info!("  Parent Path: {}", new_project_request.parent_path.display());
+
+                match session_manager::SessionManager::create_new_project_directory(
+                    &new_project_request.project_name,
+                    &new_project_request.parent_path,
+                ) {
+                    Ok(selection) => selection,
+                    Err(e) => {
+                        tracing::error!(error = %e, "Failed to create new project directory");
+                        return Err(e);
+                    }
+                }
+            }
+        };
+
+        tracing::info!("  Session Name: {}", sm_selection.session_name);
+
+        match session_manager::SessionManager::is_tmux_server_running() {
+            Ok(true) => {
+                tracing::info!("Tmux server is running.");
+                match session_manager::SessionManager::session_exists(
+                    &sm_selection.session_name,
+                ) {
+                    Ok(true) => {
+                        tracing::info!(session_name = %sm_selection.session_name, "Session exists. Switching/Attaching.");
+                        session_manager::SessionManager::switch_or_attach_to_session(
+                            &sm_selection.session_name,
+                        )?;
+                        tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to session.");
+                    }
+                    Ok(false) => {
+                        tracing::info!(session_name = %sm_selection.session_name, "Session does not exist. Creating new session.");
+                        session_manager::SessionManager::create_new_session(
+                            &sm_selection.session_name,
+                            &sm_selection.path,
+                        )?;
+                        tracing::info!(session_name = %sm_selection.session_name, "Successfully created session.");
+
+                        tracing::info!(session_name = %sm_selection.session_name, "Attempting to switch/attach to newly created session.");
+                        session_manager::SessionManager::switch_or_attach_to_session(
+                            &sm_selection.session_name,
+                        )?;
+                        tracing::info!(session_name = %sm_selection.session_name, "Successfully switched/attached to new session.");
+                    }
+                    Err(e) => {
+                        // Error checking session existence is distinct from action errors
+                        tracing::error!(session_name = %sm_selection.session_name, error = %e, "Error checking if session exists.");
+                    }
+                }
+            }
+            Ok(false) => {
+                tracing::warn!(session_name = %sm_selection.session_name, "Tmux server is not running. Cannot manage session.");
+                tracing::info!("Please start tmux server to use session management features.");
+            }
+            Err(e) => {
+                // Error checking server status
+                tracing::error!(error = %e, "Error checking tmux server status.");
+            }
         }
     } else {
         // Corresponds to Ok(None) from selection_result

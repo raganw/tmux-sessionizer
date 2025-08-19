@@ -57,6 +57,7 @@ fn test_build_with_file_config_overrides_defaults_no_cli_override() {
         search_paths: Some(vec!["/etc/from_file".to_string(), "~/file_dev".to_string()]),
         additional_paths: Some(vec!["/var/log/from_file".to_string()]),
         exclude_patterns: Some(vec!["^\\.git$".to_string(), "target/".to_string()]),
+        default_new_project_path: None,
     };
     let cli_args = CliArgs {
         // CLI args that don't override file config for these fields
@@ -98,6 +99,7 @@ fn test_build_cli_overrides_file_config_and_defaults() {
         search_paths: Some(vec!["/file/path_search".to_string()]), // Will be overridden by default if CLI for paths is not implemented
         additional_paths: Some(vec!["/file/path_add".to_string()]), // Same
         exclude_patterns: Some(vec!["file_pattern".to_string()]),  // Same
+        default_new_project_path: None,
     };
     let cli_args = CliArgs {
         debug: true, // CLI overrides default false and any file setting (if file had debug)
@@ -135,6 +137,7 @@ fn test_build_invalid_regex_in_file_config_returns_error() {
         search_paths: None,
         additional_paths: None,
         exclude_patterns: Some(vec!["[invalidRegex".to_string()]), // This is an invalid regex
+        default_new_project_path: None,
     };
     let cli_args = CliArgs {
         debug: false,
