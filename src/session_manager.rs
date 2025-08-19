@@ -110,13 +110,12 @@ impl SessionManager {
             }
             Err(e) => {
                 // Check if the error message indicates the server isn't running.
-                if let TmuxInterfaceError::Tmux(ref message) = e {
-                    if message.contains("no server running")
-                        || message.contains("failed to connect to server")
-                    {
-                        debug!("Tmux server is not running (detected via specific error message).");
-                        return Ok(false);
-                    }
+                if let TmuxInterfaceError::Tmux(ref message) = e
+                    && (message.contains("no server running")
+                        || message.contains("failed to connect to server"))
+                {
+                    debug!("Tmux server is not running (detected via specific error message).");
+                    return Ok(false);
                 }
                 // Otherwise, it's some other communication error.
                 error!("Error while checking tmux server status: {}", e);
@@ -152,16 +151,15 @@ impl SessionManager {
             }
             Err(e) => {
                 // Check if the error message indicates the server isn't running.
-                if let TmuxInterfaceError::Tmux(ref message) = e {
-                    if message.contains("no server running")
-                        || message.contains("failed to connect to server")
-                    {
-                        debug!(
-                            "Tmux server not running, thus session '{}' cannot exist (detected via specific error message).",
-                            session_name
-                        );
-                        return Ok(false); // Session cannot exist if server isn't running.
-                    }
+                if let TmuxInterfaceError::Tmux(ref message) = e
+                    && (message.contains("no server running")
+                        || message.contains("failed to connect to server"))
+                {
+                    debug!(
+                        "Tmux server not running, thus session '{}' cannot exist (detected via specific error message).",
+                        session_name
+                    );
+                    return Ok(false); // Session cannot exist if server isn't running.
                 }
                 // Otherwise, it's some other communication error.
                 error!("Error while checking for session '{}': {}", session_name, e);
