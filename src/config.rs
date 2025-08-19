@@ -146,6 +146,9 @@ pub(crate) struct FileConfig {
     /// Optional list of patterns to exclude from the search.
     #[serde(default)]
     pub exclude_patterns: Option<Vec<String>>,
+    /// Optional default location where new projects should be created.
+    #[serde(default)]
+    pub default_new_project_path: Option<String>,
 }
 
 /// Holds the application's runtime configuration.
@@ -163,6 +166,8 @@ pub struct Config {
     pub debug_mode: bool,
     /// An optional path or name provided directly by the user, bypassing the fuzzy finder.
     pub direct_selection: Option<String>,
+    /// Default directory where new projects should be created.
+    pub default_new_project_path: PathBuf,
 }
 
 impl Default for Config {
@@ -179,6 +184,7 @@ impl Default for Config {
             exclude_patterns: Vec::new(),
             debug_mode: false,
             direct_selection: None,
+            default_new_project_path: PathBuf::from("~/dev"), // Default to ~/dev
         }
     }
 }
@@ -251,6 +257,7 @@ impl Config {
             debug_mode: defaults.debug_mode,
             direct_selection: defaults.direct_selection,
             log_directory: defaults.log_directory, // This will be set later
+            default_new_project_path: defaults.default_new_project_path,
         };
 
         // Determine log directory path (early, before other processing that might log)
@@ -297,6 +304,10 @@ impl Config {
                     "Loaded exclude_patterns from file config"
                 );
             }
+            if let Some(default_new_project_path_str) = fc.default_new_project_path {
+                config.default_new_project_path = PathBuf::from(default_new_project_path_str);
+                trace!(path = ?config.default_new_project_path, "Overridden default_new_project_path from file config (pre-expansion)");
+            }
         } else {
             debug!("No configuration file loaded or found. Using defaults combined with CLI args.");
         }
@@ -342,6 +353,14 @@ impl Config {
         trace!(expanded_additional_paths = ?config.additional_paths, "Additional paths after tilde expansion");
         // Note: expand_tilde logs errors internally if home dir isn't found.
         // We filter_map to omit paths that couldn't be expanded.
+
+        // Expand tilde for default_new_project_path
+        if let Some(expanded) = expand_tilde(&config.default_new_project_path) {
+            config.default_new_project_path = expanded;
+        } else if config.default_new_project_path.starts_with("~") {
+            warn!(path = ?config.default_new_project_path.display(), "Could not expand tilde for default_new_project_path. Using as-is.");
+        }
+        trace!(expanded_default_new_project_path = ?config.default_new_project_path, "Default new project path after tilde expansion");
 
         Ok(config)
     }
