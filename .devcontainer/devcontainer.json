@@ -1,0 +1,38 @@
+{
+	"name": "tmux-sessionizer Rust Development",
+	"image": "mcr.microsoft.com/devcontainers/rust:1-bookworm",
+	"features": {
+		"ghcr.io/devcontainers/features/git:1": {
+			"ppa": true,
+			"version": "latest"
+		}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"vadimcn.vscode-lldb",
+				"serayuzgur.crates",
+				"fill-labs.dependi",
+				"tamasfe.even-better-toml"
+			],
+			"settings": {
+				"rust-analyzer.checkOnSave.command": "clippy",
+				"rust-analyzer.checkOnSave.allTargets": false,
+				"rust-analyzer.cargo.buildScripts.enable": true,
+				"rust-analyzer.procMacro.enable": true,
+				"terminal.integrated.defaultProfile.linux": "bash",
+				"terminal.integrated.profiles.linux": {
+					"bash": {
+						"path": "/bin/bash"
+					}
+				}
+			}
+		}
+	},
+	"postCreateCommand": "sudo apt-get update && sudo apt-get install -y tmux libssl-dev && cargo build",
+	"remoteUser": "vscode",
+	"forwardPorts": [],
+	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+	"workspaceFolder": "/workspace"
+}
