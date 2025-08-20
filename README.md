@@ -200,13 +200,17 @@ A "Cut Release" workflow allows maintainers to manually trigger version bumps an
 
 The workflow will:
 - Update the version in `Cargo.toml`
-- Commit the change with a conventional commit message
-- Create a git tag (e.g., `v0.3.2`)
-- Trigger the automated release build workflow
+- Create a release branch with the version bump
+- Open a pull request against main
+- Enable auto-merge on the PR
+- Once the PR merges (after required checks pass), a separate workflow creates the git tag (e.g., `v0.3.2`)
+- The tag creation triggers the automated release build workflow
+
+**Note**: The main branch is protected and requires pull requests with passing checks. The release process respects these protections by creating PRs rather than committing directly to main.
 
 ### Automated Release Build
 
-When a version tag is pushed (via the Cut Release workflow or manually), the release workflow automatically:
+When a version tag is pushed (via the automated tag workflow after PR merge or manually), the release workflow automatically:
 - Builds binaries for Linux (x86_64), macOS (x86_64 and ARM64)
 - Creates GitHub releases with downloadable assets
 - Updates the Homebrew tap formula
