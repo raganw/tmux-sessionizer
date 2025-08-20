@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     
     steps:
       - name: Checkout repository
@@ -102,29 +103,40 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit version bump
-        run: |
-          git add Cargo.toml Cargo.lock
-          git commit -m "chore: bump version to v${{ steps.new_version.outputs.new_version }}"
-          echo "Committed version bump"
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        id: create_pr
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(release): v${{ steps.new_version.outputs.new_version }}"
+          branch: release/v${{ steps.new_version.outputs.new_version }}
+          base: main
+          title: "chore(release): v${{ steps.new_version.outputs.new_version }}"
+          body: |
+            ## Release v${{ steps.new_version.outputs.new_version }}
+            
+            This PR bumps the version from ${{ steps.current_version.outputs.current_version }} to ${{ steps.new_version.outputs.new_version }}.
+            
+            **Changes:**
+            - Updated version in `Cargo.toml`
+            - Updated `Cargo.lock`
+            
+            This PR will auto-merge once required checks pass.
 
-      - name: Create tag
-        run: |
-          git tag -a "v${{ steps.new_version.outputs.new_version }}" -m "Release v${{ steps.new_version.outputs.new_version }}"
-          echo "Created tag v${{ steps.new_version.outputs.new_version }}"
-
-      - name: Push changes
-        run: |
-          git push origin main
-          git push origin "v${{ steps.new_version.outputs.new_version }}"
-          echo "Pushed commit and tag to origin"
+      - name: Enable auto-merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ steps.create_pr.outputs.pull-request-number }}
+          merge-method: squash
 
       - name: Summary
         run: |
-          echo "✅ Successfully cut release v${{ steps.new_version.outputs.new_version }}"
+          echo "✅ Successfully created release PR for v${{ steps.new_version.outputs.new_version }}"
           echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
           echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
-          echo "🏷️  Tag: v${{ steps.new_version.outputs.new_version }}"
+          echo "🌿 Release branch: release/v${{ steps.new_version.outputs.new_version }}"
+          echo "🔗 Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
           echo ""
-          echo "The release workflow should now be triggered automatically."
-          echo "Check the Actions tab to monitor the release build progress."
+          echo "The PR has auto-merge enabled and will merge automatically once required checks pass."
+          echo "After the PR merges, the tag workflow will create the release tag and trigger the release build."

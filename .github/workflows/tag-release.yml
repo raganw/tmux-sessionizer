@@ -1,0 +1,71 @@
+name: Tag Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Cargo.toml'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  tag-release:
+    name: Tag Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version from Cargo.toml
+        id: extract_version
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          TAG_NAME="v${{ steps.extract_version.outputs.version }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME already exists"
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "Tag $TAG_NAME does not exist"
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        if: steps.check_tag.outputs.tag_exists == 'false'
+        run: |
+          TAG_NAME="${{ steps.check_tag.outputs.tag_name }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+          echo "Created and pushed tag $TAG_NAME"
+
+      - name: Skip tag creation
+        if: steps.check_tag.outputs.tag_exists == 'true'
+        run: |
+          echo "Tag ${{ steps.check_tag.outputs.tag_name }} already exists, skipping tag creation"
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check_tag.outputs.tag_exists }}" = "false" ]; then
+            echo "✅ Successfully created and pushed tag ${{ steps.check_tag.outputs.tag_name }}"
+            echo "🚀 The release workflow should now be triggered automatically"
+            echo "📋 Check the Actions tab to monitor the release build progress"
+          else
+            echo "ℹ️  Tag ${{ steps.check_tag.outputs.tag_name }} already exists, no action needed"
+            echo "✅ Workflow completed successfully (idempotent)"
+          fi
