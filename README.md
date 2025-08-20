@@ -199,28 +199,31 @@ A "Cut Release" workflow allows maintainers to manually trigger version bumps an
    - **custom**: Specify an exact version number
 
 The workflow will:
-- Update the version in `Cargo.toml`
-- Create a release branch with the version bump
-- Open a pull request against main
-- Enable auto-merge on the PR
-- Once the PR merges (after required checks pass), a separate workflow creates the git tag (e.g., `v0.3.2`)
+- Update the version in `Cargo.toml` and `Cargo.lock`
+- Commit the changes directly to the main branch (bypassing branch protection)
+- Create and push a git tag (e.g., `v0.3.2`)
 - The tag creation triggers the automated release build workflow
 
-**Note**: The main branch is protected and requires pull requests with passing checks. The release process respects these protections by creating PRs rather than committing directly to main.
+**Note**: This workflow bypasses the main branch protection by using a Personal Access Token (PAT) with appropriate permissions.
 
 #### Required Repository Configuration
 
-For the Cut Release workflow to function properly, ensure the following repository settings:
+For the Cut Release workflow to function properly, configure the following repository settings:
 
-1. **GitHub Actions Permissions**: Go to **Settings → Actions → General**
-   - Under "Workflow permissions", ensure **"Allow GitHub Actions to create and approve pull requests"** is **checked**
-   - This setting is required for the workflow to automatically create release PRs
+1. **Personal Access Token (PAT)**: Create a fine-grained PAT to bypass branch protection
+   - Go to **GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens**
+   - Click **Generate new token**
+   - Select this repository in **Repository access**
+   - Under **Permissions**, grant:
+     - **Contents**: Write access (to push commits and tags)
+     - **Metadata**: Read access (basic repository access)
+   - Copy the token and add it as a repository secret named `RELEASE_PAT`
+   - Go to repository **Settings → Secrets and variables → Actions**
+   - Click **New repository secret**, name it `RELEASE_PAT`, and paste the token
 
-2. **Branch Protection**: If main branch protection is enabled, ensure:
-   - Required status checks are configured to allow the workflow to pass
-   - Auto-merge is allowed for pull requests
+2. **Branch Protection Bypass**: Ensure the PAT owner has admin access to bypass branch protection rules
 
-If the Cut Release workflow fails with "GitHub Actions is not permitted to create or approve pull requests", check the above settings.
+If the Cut Release workflow fails with permission errors, verify the above PAT configuration.
 
 ### Automated Release Build
 

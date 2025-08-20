@@ -26,16 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
-      issues: write
-      repository-projects: write
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -84,10 +81,29 @@ jobs:
           
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Check if version tag already exists
+        id: check_tag
+        run: |
+          TAG_NAME="v${{ steps.new_version.outputs.new_version }}"
+          if git ls-remote --exit-code --tags origin "$TAG_NAME" > /dev/null 2>&1; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "❌ Tag $TAG_NAME already exists"
+            exit 1
+          else
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "✅ Tag $TAG_NAME does not exist, proceeding"
+          fi
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
       - name: Update version in Cargo.toml
         run: |
           cargo set-version ${{ steps.new_version.outputs.new_version }}
           echo "Updated Cargo.toml version to ${{ steps.new_version.outputs.new_version }}"
+
+      - name: Update Cargo.lock
+        run: |
+          cargo check --quiet
+          echo "Updated Cargo.lock with new version"
 
       - name: Verify version update
         run: |
@@ -105,69 +121,64 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v6
-        id: create_pr
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          commit-message: "chore(release): v${{ steps.new_version.outputs.new_version }}"
-          branch: release/v${{ steps.new_version.outputs.new_version }}
-          base: main
-          title: "chore(release): v${{ steps.new_version.outputs.new_version }}"
-          body: |
-            ## Release v${{ steps.new_version.outputs.new_version }}
-            
-            This PR bumps the version from ${{ steps.current_version.outputs.current_version }} to ${{ steps.new_version.outputs.new_version }}.
-            
-            **Changes:**
-            - Updated version in `Cargo.toml`
-            - Updated `Cargo.lock`
-            
-            This PR will auto-merge once required checks pass.
-          
-      - name: Handle PR Creation Error
-        if: failure()
+      - name: Commit version bump and create tag
         run: |
-          echo "❌ Failed to create pull request"
-          echo ""
-          echo "This is likely because GitHub Actions doesn't have permission to create pull requests in this repository."
-          echo ""
-          echo "To fix this issue, please:"
-          echo "1. Go to your repository Settings → Actions → General"
-          echo "2. Under 'Workflow permissions', ensure 'Allow GitHub Actions to create and approve pull requests' is checked"
-          echo ""
-          echo "Alternatively, you can create the release manually:"
-          echo "1. A release branch 'release/v${{ steps.new_version.outputs.new_version }}' has been created with the version bump"
-          echo "2. Create a pull request from this branch to main"
-          echo "3. Once merged, the tag will be created automatically"
-          exit 1
+          TAG_NAME="${{ steps.check_tag.outputs.tag_name }}"
+          
+          # Stage the changes
+          git add Cargo.toml Cargo.lock
+          
+          # Check if there are actually changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit, this shouldn't happen"
+            exit 1
+          fi
+          
+          # Commit the version bump
+          git commit -m "chore(release): bump version to ${{ steps.new_version.outputs.new_version }}"
+          
+          # Create annotated tag
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          
+          echo "✅ Created commit and tag $TAG_NAME"
 
-      - name: Enable auto-merge
-        if: steps.create_pr.outputs.pull-request-number != ''
-        uses: peter-evans/enable-pull-request-automerge@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          pull-request-number: ${{ steps.create_pr.outputs.pull-request-number }}
-          merge-method: squash
+      - name: Push changes to main and tag
+        run: |
+          TAG_NAME="${{ steps.check_tag.outputs.tag_name }}"
+          
+          # Push the commit directly to main (bypassing branch protection with PAT)
+          git push origin HEAD:main
+          
+          # Push the tag
+          git push origin "$TAG_NAME"
+          
+          echo "✅ Pushed commit to main and tag $TAG_NAME to origin"
 
       - name: Summary
-        if: always()
         run: |
-          if [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
-            echo "✅ Successfully created release PR for v${{ steps.new_version.outputs.new_version }}"
-            echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
-            echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
-            echo "🌿 Release branch: release/v${{ steps.new_version.outputs.new_version }}"
-            echo "🔗 Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
-            echo ""
-            echo "The PR has auto-merge enabled and will merge automatically once required checks pass."
-            echo "After the PR merges, the tag workflow will create the release tag and trigger the release build."
-          else
-            echo "⚠️  Version was updated but PR creation failed"
-            echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
-            echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
-            echo "🌿 Release branch: release/v${{ steps.new_version.outputs.new_version }}"
-            echo ""
-            echo "A release branch has been created with the updated version."
-            echo "You can manually create a PR from this branch to continue the release process."
-          fi
+          echo "🎉 Successfully created release v${{ steps.new_version.outputs.new_version }}"
+          echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
+          echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
+          echo "🏷️  Created tag: ${{ steps.check_tag.outputs.tag_name }}"
+          echo ""
+          echo "✅ Version bump committed directly to main branch"
+          echo "✅ Release tag pushed to trigger automated release build"
+          echo "📋 Check the Actions tab for the release build progress"
+          echo ""
+          echo "🔗 Release will be available at: https://github.com/${{ github.repository }}/releases/tag/${{ steps.check_tag.outputs.tag_name }}"
+
+      - name: Handle errors
+        if: failure()
+        run: |
+          echo "❌ Release workflow failed"
+          echo ""
+          echo "If you see permission errors, ensure that:"
+          echo "1. RELEASE_PAT secret is configured with a Personal Access Token"
+          echo "2. The PAT has 'contents: write' and 'metadata: read' permissions"
+          echo "3. The PAT is associated with a user that can bypass branch protection"
+          echo ""
+          echo "To create a PAT:"
+          echo "1. Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens"
+          echo "2. Create a token with 'Contents' write permission for this repository"
+          echo "3. Add it as a repository secret named 'RELEASE_PAT'"
+          exit 1
