@@ -208,6 +208,20 @@ The workflow will:
 
 **Note**: The main branch is protected and requires pull requests with passing checks. The release process respects these protections by creating PRs rather than committing directly to main.
 
+#### Required Repository Configuration
+
+For the Cut Release workflow to function properly, ensure the following repository settings:
+
+1. **GitHub Actions Permissions**: Go to **Settings → Actions → General**
+   - Under "Workflow permissions", ensure **"Allow GitHub Actions to create and approve pull requests"** is **checked**
+   - This setting is required for the workflow to automatically create release PRs
+
+2. **Branch Protection**: If main branch protection is enabled, ensure:
+   - Required status checks are configured to allow the workflow to pass
+   - Auto-merge is allowed for pull requests
+
+If the Cut Release workflow fails with "GitHub Actions is not permitted to create or approve pull requests", check the above settings.
+
 ### Automated Release Build
 
 When a version tag is pushed (via the automated tag workflow after PR merge or manually), the release workflow automatically:

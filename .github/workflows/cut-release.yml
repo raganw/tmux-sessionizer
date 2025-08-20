@@ -27,6 +27,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      issues: write
+      repository-projects: write
     
     steps:
       - name: Checkout repository
@@ -122,8 +124,26 @@ jobs:
             - Updated `Cargo.lock`
             
             This PR will auto-merge once required checks pass.
+          
+      - name: Handle PR Creation Error
+        if: failure()
+        run: |
+          echo "❌ Failed to create pull request"
+          echo ""
+          echo "This is likely because GitHub Actions doesn't have permission to create pull requests in this repository."
+          echo ""
+          echo "To fix this issue, please:"
+          echo "1. Go to your repository Settings → Actions → General"
+          echo "2. Under 'Workflow permissions', ensure 'Allow GitHub Actions to create and approve pull requests' is checked"
+          echo ""
+          echo "Alternatively, you can create the release manually:"
+          echo "1. A release branch 'release/v${{ steps.new_version.outputs.new_version }}' has been created with the version bump"
+          echo "2. Create a pull request from this branch to main"
+          echo "3. Once merged, the tag will be created automatically"
+          exit 1
 
       - name: Enable auto-merge
+        if: steps.create_pr.outputs.pull-request-number != ''
         uses: peter-evans/enable-pull-request-automerge@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -131,12 +151,23 @@ jobs:
           merge-method: squash
 
       - name: Summary
+        if: always()
         run: |
-          echo "✅ Successfully created release PR for v${{ steps.new_version.outputs.new_version }}"
-          echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
-          echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
-          echo "🌿 Release branch: release/v${{ steps.new_version.outputs.new_version }}"
-          echo "🔗 Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
-          echo ""
-          echo "The PR has auto-merge enabled and will merge automatically once required checks pass."
-          echo "After the PR merges, the tag workflow will create the release tag and trigger the release build."
+          if [ "${{ steps.create_pr.outputs.pull-request-number }}" != "" ]; then
+            echo "✅ Successfully created release PR for v${{ steps.new_version.outputs.new_version }}"
+            echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
+            echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
+            echo "🌿 Release branch: release/v${{ steps.new_version.outputs.new_version }}"
+            echo "🔗 Pull Request: ${{ steps.create_pr.outputs.pull-request-url }}"
+            echo ""
+            echo "The PR has auto-merge enabled and will merge automatically once required checks pass."
+            echo "After the PR merges, the tag workflow will create the release tag and trigger the release build."
+          else
+            echo "⚠️  Version was updated but PR creation failed"
+            echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
+            echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
+            echo "🌿 Release branch: release/v${{ steps.new_version.outputs.new_version }}"
+            echo ""
+            echo "A release branch has been created with the updated version."
+            echo "You can manually create a PR from this branch to continue the release process."
+          fi
