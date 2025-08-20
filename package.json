@@ -1,0 +1,55 @@
+{
+  "name": "tmux-sessionizer",
+  "version": "0.5.0",
+  "private": true,
+  "description": "A powerful tmux session manager with fuzzy finding and session organization capabilities",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/raganw/tmux-sessionizer.git"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/commit-analyzer": "^12.0.0",
+    "@semantic-release/exec": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^10.0.0",
+    "@semantic-release/release-notes-generator": "^13.0.0",
+    "semantic-release": "^23.0.0"
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ]
+  },
+  "release": {
+    "branches": [
+      "main"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/changelog",
+      [
+        "@semantic-release/exec",
+        {
+          "prepareCmd": "cargo set-version ${nextRelease.version} && cargo check --quiet"
+        }
+      ],
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "Cargo.toml",
+            "Cargo.lock",
+            "CHANGELOG.md"
+          ],
+          "message": "chore(release): bump version to ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        }
+      ],
+      "@semantic-release/github"
+    ]
+  }
+}

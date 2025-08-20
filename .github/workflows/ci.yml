@@ -9,6 +9,27 @@ on:
 env:
   CARGO_TERM_COLOR: always
 jobs:
+  lint-commits:
+    name: Lint Commit Messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @commitlint/cli @commitlint/config-conventional
+
+      - name: Lint commit messages
+        run: npx commitlint --from ${{ github.event.before }} --to ${{ github.event.after }} --verbose
+
   build_and_test_linux:
     name: Build & Test (Linux)
     runs-on: ubuntu-latest

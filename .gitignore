@@ -1,1 +1,5 @@
 /target
+
+# Node.js dependencies (for semantic-release tooling)
+node_modules/
+package-lock.json

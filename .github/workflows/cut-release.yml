@@ -1,38 +1,35 @@
-name: Cut Release
+name: Semantic Release
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      version_bump_type:
-        description: 'Version bump type'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-      custom_version:
-        description: 'Custom version (optional, overrides version_bump_type if provided)'
-        required: false
-        type: string
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  cut-release:
-    name: Cut Release
+  release:
+    name: Semantic Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+      issues: write
+      pull-requests: write
+      
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -41,136 +38,27 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install cargo-edit
-        run: cargo install cargo-edit
-
-      - name: Get current version
-        id: current_version
-        run: |
-          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "Current version: $CURRENT_VERSION"
-
-      - name: Calculate new version
-        id: new_version
-        run: |
-          if [ -n "${{ github.event.inputs.custom_version }}" ]; then
-            NEW_VERSION="${{ github.event.inputs.custom_version }}"
-            echo "Using custom version: $NEW_VERSION"
-          else
-            CURRENT_VERSION="${{ steps.current_version.outputs.current_version }}"
-            IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-            
-            case "${{ github.event.inputs.version_bump_type }}" in
-              "major")
-                NEW_VERSION="$((major + 1)).0.0"
-                ;;
-              "minor")
-                NEW_VERSION="$major.$((minor + 1)).0"
-                ;;
-              "patch")
-                NEW_VERSION="$major.$minor.$((patch + 1))"
-                ;;
-              *)
-                echo "Invalid version bump type"
-                exit 1
-                ;;
-            esac
-            echo "Calculated new version: $NEW_VERSION"
-          fi
-          
-          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Check if version tag already exists
-        id: check_tag
-        run: |
-          TAG_NAME="v${{ steps.new_version.outputs.new_version }}"
-          if git ls-remote --exit-code --tags origin "$TAG_NAME" > /dev/null 2>&1; then
-            echo "tag_exists=true" >> $GITHUB_OUTPUT
-            echo "❌ Tag $TAG_NAME already exists"
-            exit 1
-          else
-            echo "tag_exists=false" >> $GITHUB_OUTPUT
-            echo "✅ Tag $TAG_NAME does not exist, proceeding"
-          fi
-          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
-
-      - name: Update version in Cargo.toml
-        run: |
-          cargo set-version ${{ steps.new_version.outputs.new_version }}
-          echo "Updated Cargo.toml version to ${{ steps.new_version.outputs.new_version }}"
-
-      - name: Update Cargo.lock
-        run: |
-          cargo check --quiet
-          echo "Updated Cargo.lock with new version"
-
-      - name: Verify version update
-        run: |
-          NEW_VERSION_FROM_CARGO=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-          if [ "$NEW_VERSION_FROM_CARGO" != "${{ steps.new_version.outputs.new_version }}" ]; then
-            echo "Error: Version mismatch after update"
-            echo "Expected: ${{ steps.new_version.outputs.new_version }}"
-            echo "Found: $NEW_VERSION_FROM_CARGO"
-            exit 1
-          fi
-          echo "Version successfully updated to $NEW_VERSION_FROM_CARGO"
+      - name: Install dependencies
+        run: npm ci
 
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit version bump and create tag
-        run: |
-          TAG_NAME="${{ steps.check_tag.outputs.tag_name }}"
-          
-          # Stage the changes
-          git add Cargo.toml Cargo.lock
-          
-          # Check if there are actually changes to commit
-          if git diff --staged --quiet; then
-            echo "No changes to commit, this shouldn't happen"
-            exit 1
-          fi
-          
-          # Commit the version bump
-          git commit -m "chore(release): bump version to ${{ steps.new_version.outputs.new_version }}"
-          
-          # Create annotated tag
-          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
-          
-          echo "✅ Created commit and tag $TAG_NAME"
-
-      - name: Push changes to main and tag
-        run: |
-          TAG_NAME="${{ steps.check_tag.outputs.tag_name }}"
-          
-          # Push the commit directly to main (bypassing branch protection with PAT)
-          git push origin HEAD:main
-          
-          # Push the tag
-          git push origin "$TAG_NAME"
-          
-          echo "✅ Pushed commit to main and tag $TAG_NAME to origin"
-
-      - name: Summary
-        run: |
-          echo "🎉 Successfully created release v${{ steps.new_version.outputs.new_version }}"
-          echo "📦 Previous version: ${{ steps.current_version.outputs.current_version }}"
-          echo "🚀 New version: ${{ steps.new_version.outputs.new_version }}"
-          echo "🏷️  Created tag: ${{ steps.check_tag.outputs.tag_name }}"
-          echo ""
-          echo "✅ Version bump committed directly to main branch"
-          echo "✅ Release tag pushed to trigger automated release build"
-          echo "📋 Check the Actions tab for the release build progress"
-          echo ""
-          echo "🔗 Release will be available at: https://github.com/${{ github.repository }}/releases/tag/${{ steps.check_tag.outputs.tag_name }}"
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          GIT_AUTHOR_NAME: github-actions[bot]
+          GIT_AUTHOR_EMAIL: github-actions[bot]@users.noreply.github.com
+          GIT_COMMITTER_NAME: github-actions[bot]
+          GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
+        run: npx semantic-release
 
       - name: Handle errors
         if: failure()
         run: |
-          echo "❌ Release workflow failed"
+          echo "❌ Semantic release workflow failed"
           echo ""
           echo "If you see permission errors, ensure that:"
           echo "1. RELEASE_PAT secret is configured with a Personal Access Token"
