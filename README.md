@@ -183,32 +183,59 @@ Settings are applied in the following order, with later sources overriding earli
 
 ## Releases
 
-This project uses automated release management through GitHub Actions:
+This project uses automated release management through GitHub Actions with semantic versioning:
 
-### Manual Release Process
+### Automated Release Process
 
-A "Cut Release" workflow allows maintainers to manually trigger version bumps and releases:
+Releases are automatically generated when commits are pushed to the `main` branch using [semantic-release](https://github.com/semantic-release/semantic-release). The version is determined automatically based on the commit messages following [Conventional Commits](https://www.conventionalcommits.org/) specification.
 
-1. Go to the **Actions** tab in the GitHub repository
-2. Select **Cut Release** workflow
-3. Click **Run workflow** 
-4. Choose the version bump type:
-   - **patch**: For bug fixes (e.g., 0.3.1 → 0.3.2)
-   - **minor**: For new features (e.g., 0.3.1 → 0.4.0)  
-   - **major**: For breaking changes (e.g., 0.3.1 → 1.0.0)
-   - **custom**: Specify an exact version number
+#### Commit Message Format
 
-The workflow will:
-- Update the version in `Cargo.toml` and `Cargo.lock`
-- Commit the changes directly to the main branch (bypassing branch protection)
-- Create and push a git tag (e.g., `v0.3.2`)
-- The tag creation triggers the automated release build workflow
+All commits must follow the conventional commit format:
 
-**Note**: This workflow bypasses the main branch protection by using a Personal Access Token (PAT) with appropriate permissions.
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types that trigger releases:**
+- `feat:` - A new feature (triggers **minor** version bump)
+- `fix:` - A bug fix (triggers **patch** version bump)  
+- `perf:` - A performance improvement (triggers **patch** version bump)
+- `BREAKING CHANGE:` in footer - Breaking changes (triggers **major** version bump)
+
+**Other valid types** (no release):
+- `docs:` - Documentation changes
+- `style:` - Code style changes (formatting, etc.)
+- `refactor:` - Code refactoring without feature/fix changes
+- `test:` - Adding or updating tests
+- `chore:` - Maintenance tasks, dependency updates
+- `ci:` - CI/CD changes
+- `build:` - Build system changes
+
+#### Release Workflow
+
+When changes are pushed to `main`:
+
+1. **Semantic Release** analyzes commit messages since the last release
+2. If release-worthy commits are found:
+   - Determines the next version (patch/minor/major) automatically
+   - Updates `Cargo.toml` and `Cargo.lock` with the new version
+   - Generates `CHANGELOG.md` from commit messages
+   - Creates a release commit and git tag
+   - Pushes changes to the repository
+3. The git tag triggers the automated release build workflow
+
+#### Manual Release Trigger
+
+You can also manually trigger a release by running the **Semantic Release** workflow from the Actions tab, but this still uses automated version determination based on commits.
 
 #### Required Repository Configuration
 
-For the Cut Release workflow to function properly, configure the following repository settings:
+The semantic release workflow requires the same PAT configuration as before:
 
 1. **Personal Access Token (PAT)**: Create a fine-grained PAT to bypass branch protection
    - Go to **GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens**
@@ -223,7 +250,11 @@ For the Cut Release workflow to function properly, configure the following repos
 
 2. **Branch Protection Bypass**: Ensure the PAT owner has admin access to bypass branch protection rules
 
-If the Cut Release workflow fails with permission errors, verify the above PAT configuration.
+#### Pull Request Guidelines
+
+- **PR titles must follow conventional commit format** - they will be linted automatically
+- Use clear, descriptive commit messages that accurately reflect the changes
+- Breaking changes must be clearly indicated in commit messages or PR descriptions
 
 ### Automated Release Build
 
