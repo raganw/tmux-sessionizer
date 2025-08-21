@@ -29,7 +29,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
 
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
@@ -38,8 +37,44 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install semantic-release and cargo-edit
+        run: |
+          npm install -g semantic-release@^23.0.0 \
+            @semantic-release/changelog@^6.0.3 \
+            @semantic-release/commit-analyzer@^12.0.0 \
+            @semantic-release/exec@^6.0.3 \
+            @semantic-release/git@^10.0.1 \
+            @semantic-release/github@^10.0.0 \
+            @semantic-release/release-notes-generator@^13.0.0
+          cargo install cargo-edit
+
+      - name: Create semantic-release config
+        run: |
+          cat > .releaserc.json << 'EOF'
+          {
+            "branches": ["main"],
+            "plugins": [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              "@semantic-release/changelog",
+              [
+                "@semantic-release/exec",
+                {
+                  "prepareCmd": "cargo set-version ${nextRelease.version} && cargo check --quiet"
+                }
+              ],
+              [
+                "@semantic-release/git",
+                {
+                  "assets": ["Cargo.toml", "Cargo.lock", "CHANGELOG.md"],
+                  "message": "chore(release): bump version to ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+                }
+              ],
+              "@semantic-release/github"
+            ],
+            "preset": "conventionalcommits"
+          }
+          EOF
 
       - name: Configure Git
         run: |
@@ -54,6 +89,10 @@ jobs:
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: github-actions[bot]@users.noreply.github.com
         run: npx semantic-release
+
+      - name: Clean up temporary config
+        if: always()
+        run: rm -f .releaserc.json
 
       - name: Handle errors
         if: failure()

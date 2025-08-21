@@ -56,11 +56,15 @@ feat!: remove deprecated fuzzy finder option
 - **`.github/workflows/lint-pr-title.yml`**: Validates PR titles follow conventional commits
 - **`.github/workflows/ci.yml`**: Includes commit message linting for push events
 
-## Configuration Files
+## Configuration Approach
 
-- **`package.json`**: Contains semantic-release and commitlint dependencies + basic config
-- **`.releaserc.yml`**: Detailed semantic-release configuration
-- **`commitlint.config.js`**: Commit message linting rules
+The semantic-release tooling is **entirely defined within the GitHub workflow files**. No Node.js project files are added to the repository:
+
+- **Dependencies**: npm packages are installed globally in workflow steps
+- **Configuration**: Created dynamically as temporary files during workflow execution
+- **Cleanup**: All temporary configuration files are automatically removed after use
+
+This approach keeps the Rust project clean while still providing full semantic-release functionality.
 
 ## Manual Release Trigger
 

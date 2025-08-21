@@ -9,16 +9,45 @@ jobs:
     name: Lint PR Title
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        run: npm install @commitlint/cli @commitlint/config-conventional
+      - name: Install commitlint
+        run: |
+          npm install -g @commitlint/cli @commitlint/config-conventional
+
+      - name: Create commitlint config
+        run: |
+          cat > commitlint.config.js << 'EOF'
+          module.exports = {
+            extends: ['@commitlint/config-conventional'],
+            rules: {
+              'type-enum': [
+                2,
+                'always',
+                [
+                  'build',
+                  'chore',
+                  'ci',
+                  'docs',
+                  'feat',
+                  'fix',
+                  'perf',
+                  'refactor',
+                  'revert',
+                  'style',
+                  'test'
+                ]
+              ],
+              'subject-case': [2, 'never', ['start-case', 'pascal-case', 'upper-case']],
+              'subject-empty': [2, 'never'],
+              'subject-full-stop': [2, 'never', '.'],
+              'header-max-length': [2, 'always', 100]
+            }
+          };
+          EOF
 
       - name: Lint PR title
         env:
@@ -26,6 +55,10 @@ jobs:
         run: |
           echo "Linting PR title: $PR_TITLE"
           echo "$PR_TITLE" | npx commitlint --config commitlint.config.js
+
+      - name: Clean up temporary config
+        if: always()
+        run: rm -f commitlint.config.js
 
       - name: Comment on PR if title is invalid
         if: failure()
@@ -37,32 +70,32 @@ jobs:
             
             const comment = `## ❌ PR Title Does Not Follow Conventional Commit Format
 
-Your PR title \`${prTitle}\` does not follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
+            Your PR title \`${prTitle}\` does not follow the [Conventional Commits](https://www.conventionalcommits.org/) specification.
 
-### Expected Format:
-\`\`\`
-<type>[optional scope]: <description>
-\`\`\`
+            ### Expected Format:
+            \`\`\`
+            <type>[optional scope]: <description>
+            \`\`\`
 
-### Valid Types:
-- \`feat:\` - A new feature
-- \`fix:\` - A bug fix
-- \`docs:\` - Documentation only changes
-- \`style:\` - Changes that do not affect the meaning of the code
-- \`refactor:\` - A code change that neither fixes a bug nor adds a feature
-- \`perf:\` - A code change that improves performance
-- \`test:\` - Adding missing tests or correcting existing tests
-- \`chore:\` - Changes to the build process or auxiliary tools
-- \`ci:\` - Changes to CI configuration files and scripts
-- \`build:\` - Changes that affect the build system or external dependencies
+            ### Valid Types:
+            - \`feat:\` - A new feature
+            - \`fix:\` - A bug fix
+            - \`docs:\` - Documentation only changes
+            - \`style:\` - Changes that do not affect the meaning of the code
+            - \`refactor:\` - A code change that neither fixes a bug nor adds a feature
+            - \`perf:\` - A code change that improves performance
+            - \`test:\` - Adding missing tests or correcting existing tests
+            - \`chore:\` - Changes to the build process or auxiliary tools
+            - \`ci:\` - Changes to CI configuration files and scripts
+            - \`build:\` - Changes that affect the build system or external dependencies
 
-### Examples:
-- \`feat: add fuzzy finding for project selection\`
-- \`fix: resolve session creation bug\`
-- \`docs: update installation instructions\`
-- \`chore: update dependencies\`
+            ### Examples:
+            - \`feat: add fuzzy finding for project selection\`
+            - \`fix: resolve session creation bug\`
+            - \`docs: update installation instructions\`
+            - \`chore: update dependencies\`
 
-Please update your PR title to follow this format.`;
+            Please update your PR title to follow this format.`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
