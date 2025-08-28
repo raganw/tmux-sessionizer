@@ -9,6 +9,62 @@ on:
 env:
   CARGO_TERM_COLOR: always
 jobs:
+  lint-commits:
+    name: Lint Commit Messages
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install commitlint
+        run: |
+          npm install -g @commitlint/cli @commitlint/config-conventional
+
+      - name: Create commitlint config
+        run: |
+          cat > commitlint.config.js << 'EOF'
+          module.exports = {
+            extends: ['@commitlint/config-conventional'],
+            rules: {
+              'type-enum': [
+                2,
+                'always',
+                [
+                  'build',
+                  'chore',
+                  'ci',
+                  'docs',
+                  'feat',
+                  'fix',
+                  'perf',
+                  'refactor',
+                  'revert',
+                  'style',
+                  'test'
+                ]
+              ],
+              'subject-case': [2, 'never', ['start-case', 'pascal-case', 'upper-case']],
+              'subject-empty': [2, 'never'],
+              'subject-full-stop': [2, 'never', '.'],
+              'header-max-length': [2, 'always', 100]
+            }
+          };
+          EOF
+
+      - name: Lint commit messages
+        run: npx commitlint --from ${{ github.event.before }} --to ${{ github.event.after }} --verbose --config commitlint.config.js
+
+      - name: Clean up temporary config
+        if: always()
+        run: rm -f commitlint.config.js
   build_and_test_linux:
     name: Build & Test (Linux)
     runs-on: ubuntu-latest
