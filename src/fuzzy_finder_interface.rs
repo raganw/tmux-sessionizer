@@ -59,8 +59,9 @@ pub struct FuzzyFinder {}
 impl FuzzyFinder {
     /// Formats a `DirectoryEntry` for display in the `skim` fuzzy finder.
     ///
-    /// The output format is `display_name\tresolved_path`. The `resolved_path` is included
-    /// primarily for potential use in `skim`'s preview window or if `skim` needs to parse
+    /// The output format is `display_name    →    resolved_path`. This provides better
+    /// visual separation and readability in the fuzzy finder interface. The `resolved_path`
+    /// is included primarily for potential use in `skim`'s preview window or if `skim` needs to parse
     /// the path itself, although the primary selection mechanism relies on parsing this
     /// line format after `skim` returns the selected line.
     ///
@@ -70,9 +71,13 @@ impl FuzzyFinder {
     ///
     /// # Returns
     ///
-    /// A `String` formatted for `skim` input.
+    /// A `String` formatted for `skim` input with improved visual structure.
     fn format_directory_entry_for_skim(entry: &DirectoryEntry) -> String {
-        format!("{}\t{}", entry.display_name, entry.resolved_path.display())
+        format!(
+            "{}    →    {}",
+            entry.display_name,
+            entry.resolved_path.display()
+        )
     }
 
     /// Prepares the input string for the `skim` fuzzy finder by formatting each `DirectoryEntry`.
@@ -129,7 +134,7 @@ impl FuzzyFinder {
         }
 
         // Add a special entry for creating new projects
-        let mut skim_input = "+ Create New Project...\t<NEW_PROJECT>\n".to_string();
+        let mut skim_input = "+ Create New Project...    →    <NEW_PROJECT>\n".to_string();
         skim_input.push_str(&Self::prepare_skim_input(entries));
 
         debug!(
@@ -182,8 +187,8 @@ impl FuzzyFinder {
             return Self::handle_new_project_creation(default_new_project_path);
         }
 
-        // Parse the selected line (format: "display_name\tresolved_path")
-        let parts: Vec<&str> = selected_line.splitn(2, '\t').collect();
+        // Parse the selected line (format: "display_name    →    resolved_path")
+        let parts: Vec<&str> = selected_line.splitn(2, "    →    ").collect();
         if parts.len() == 2 {
             let display_name = parts[0].to_string();
             let path_str = parts[1];
@@ -200,7 +205,7 @@ impl FuzzyFinder {
             })))
         } else {
             Err(AppError::Finder(format!(
-                "Selected line from Skim has unexpected format (expected 'display\\tpath'): '{selected_line}'"
+                "Selected line from Skim has unexpected format (expected 'display    →    path'): '{selected_line}'"
             )))
         }
     }

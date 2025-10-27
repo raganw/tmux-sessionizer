@@ -13,7 +13,7 @@ fn test_format_directory_entry_for_skim_plain() {
     };
     assert_eq!(
         FuzzyFinder::format_directory_entry_for_skim(&entry),
-        "project_a\t/resolved/path/to/project_a"
+        "project_a    →    /resolved/path/to/project_a"
     );
 }
 
@@ -28,7 +28,7 @@ fn test_format_directory_entry_for_skim_git_repo() {
     };
     assert_eq!(
         FuzzyFinder::format_directory_entry_for_skim(&entry),
-        "git_repo\t/resolved/git_repo"
+        "git_repo    →    /resolved/git_repo"
     );
 }
 
@@ -46,7 +46,7 @@ fn test_format_directory_entry_for_skim_worktree() {
     };
     assert_eq!(
         FuzzyFinder::format_directory_entry_for_skim(&entry),
-        "[main_repo] worktree_x\t/resolved/main_repo/worktree_x"
+        "[main_repo] worktree_x    →    /resolved/main_repo/worktree_x"
     );
 }
 
@@ -74,7 +74,7 @@ fn test_prepare_skim_input_multiple_entries() {
             parent_path: None,
         },
     ];
-    let expected_output = "p1\t/res/p1\np2_display\t/res/p2";
+    let expected_output = "p1    →    /res/p1\np2_display    →    /res/p2";
     assert_eq!(FuzzyFinder::prepare_skim_input(&entries), expected_output);
 }
 
@@ -279,4 +279,50 @@ fn test_selection_result_existing_project() {
         }
         _ => panic!("Expected ExistingProject variant"),
     }
+}
+
+#[test]
+fn test_parse_new_format_plain_project() {
+    // Simulate parsing a line returned by skim with the new format
+    let selected_line = "project-a    →    /tmp/test-projects/project-a";
+    let parts: Vec<&str> = selected_line.splitn(2, "    →    ").collect();
+
+    assert_eq!(parts.len(), 2);
+    assert_eq!(parts[0], "project-a");
+    assert_eq!(parts[1], "/tmp/test-projects/project-a");
+}
+
+#[test]
+fn test_parse_new_format_worktree() {
+    let selected_line =
+        "[main-repo] feature-branch    →    /home/user/projects/main-repo/feature-branch";
+    let parts: Vec<&str> = selected_line.splitn(2, "    →    ").collect();
+
+    assert_eq!(parts.len(), 2);
+    assert_eq!(parts[0], "[main-repo] feature-branch");
+    assert_eq!(parts[1], "/home/user/projects/main-repo/feature-branch");
+}
+
+#[test]
+fn test_format_and_parse_roundtrip() {
+    let entry = DirectoryEntry {
+        path: PathBuf::from("/original/path"),
+        resolved_path: PathBuf::from("/resolved/path/project-name"),
+        display_name: "project-name".to_string(),
+        entry_type: DirectoryType::Plain,
+        parent_path: None,
+    };
+
+    // Format the entry
+    let formatted = FuzzyFinder::format_directory_entry_for_skim(&entry);
+    assert_eq!(
+        formatted,
+        "project-name    →    /resolved/path/project-name"
+    );
+
+    // Parse it back
+    let parts: Vec<&str> = formatted.splitn(2, "    →    ").collect();
+    assert_eq!(parts.len(), 2);
+    assert_eq!(parts[0], "project-name");
+    assert_eq!(parts[1], "/resolved/path/project-name");
 }
